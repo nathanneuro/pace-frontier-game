@@ -274,6 +274,10 @@ function driftOffset(b, proc, dt, rng) {
   return b + theta * (proc.mean - b) * dt + proc.diffusion * Math.sqrt(2 * theta * dt) * normal(rng);
 }
 
+// The original's seed -> threshold hash barely mixes small integers (seeds 1..100 give
+// catastrophe thresholds near 9 instead of Exp(1)). Spread user-chosen seeds over 32 bits first.
+export const mixSeed = (n) => Math.imul(n >>> 0, 2654435761) >>> 0;
+
 export function createGame(seed = 1, {
   halfWidth = UNCERTAINTY.halfWidth,
   gridPoints = UNCERTAINTY.gridPoints,

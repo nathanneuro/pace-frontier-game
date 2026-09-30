@@ -110,9 +110,9 @@ The player's own choices set the catastrophe rate. Paradigm's bot, which chases 
 as `bot: 'original'` for the faithfulness regression.
 
 Seeding caveat: the original's seed → catastrophe-threshold hash barely mixes small integers. Seeds
-1–100 give thresholds around 9 instead of Exp(1) (mean 1), so `?seed=42` games are nearly
-unlosable. Live games use random 32-bit seeds and are unaffected. The eval spreads its seeds
-over 32 bits.
+1–100 give thresholds around 9 instead of Exp(1) (mean 1), which would make `?seed=42` games nearly
+unlosable. `mixSeed` spreads URL and eval seeds over 32 bits first. Live random seeds already use
+the full 32 bits.
 
 After the game: the true frontier, both labs' internal and latent lines, and markers for your
 apparent breakthroughs (▲ real, ✕ false) are revealed.

@@ -2,7 +2,7 @@
 // Usage: node src/tools/eval_bot.mjs [seeds=100]
 // Writes outputs/run_<timestamp>_bot_tuning/{metadata.json,results.json,summary.md}.
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { BOT, createGame, tick, isLive, bandCenter, stoppingDistance, riskCapability } from '../web/sim.js';
+import { BOT, mixSeed, createGame, tick, isLive, bandCenter, stoppingDistance, riskCapability } from '../web/sim.js';
 
 const SEEDS = Number(process.argv[2] ?? 100);
 
@@ -58,10 +58,6 @@ function playOne(seed, advanced, bot, position) {
     riskCapabilityEnd: riskCapability(g),
   };
 }
-
-// The original seed hash barely mixes small integers (seeds 1..100 give catastrophe thresholds
-// near 9 instead of Exp(1)), so spread eval seeds over 32 bits like the live game's random seeds.
-const mixSeed = (i) => Math.imul(i, 2654435761) >>> 0;
 
 const mean = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
 const results = [];

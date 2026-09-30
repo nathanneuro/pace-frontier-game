@@ -1,5 +1,5 @@
 import {
-  SIM, DEPLOY_LAG, UNCERTAINTY, createGame, tick, isLive, bandCenter, visibleRiskCapability,
+  SIM, DEPLOY_LAG, mixSeed, UNCERTAINTY, createGame, tick, isLive, bandCenter, visibleRiskCapability,
   expectedMonthlyRisk, monthlyRisk, cumulativeRisk, monthsRemaining, gameDate,
 } from './sim.js';
 
@@ -326,5 +326,5 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
-start(params.has('seed') ? Number(params.get('seed')) >>> 0 : newSeed());
+start(params.has('seed') ? mixSeed(Number(params.get('seed'))) : newSeed());
 requestAnimationFrame(frame);

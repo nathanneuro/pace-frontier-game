@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   SIM, createGame, tick, isLive, bandCenter, beliefWeights, expectedMonthlyRisk,
-  monthlyRisk, hazardRate, riskCapability, visibleRiskCapability, setControls, ADVANCED,
+  monthlyRisk, hazardRate, riskCapability, visibleRiskCapability, setControls, ADVANCED, mixSeed,
 } from '../src/web/sim.js';
 
 function play(g, policy) {
@@ -180,4 +180,10 @@ test('catastrophe zeroes payouts but keeps what each lab accumulated', () => {
   assert.equal(g.reason, 'catastrophe');
   assert.deepEqual(g.scores, [0, 0]);
   assert.ok(g.labs[0].accumulated > 1e10, `accumulated ${g.labs[0].accumulated}`);
+});
+
+test('mixed small seeds give Exp(1) catastrophe thresholds', () => {
+  const t = Array.from({ length: 4000 }, (_, i) => createGame(mixSeed(i + 1)).threshold);
+  const mean = t.reduce((a, b) => a + b, 0) / t.length;
+  assert.ok(Math.abs(mean - 1) < 0.08, `mean threshold ${mean}`);
 });
