@@ -71,42 +71,48 @@ other things endogenous.
 1. *Research*: capability share `r` of research funding. Latent research speed approaches
    `r · top`, where top speed rises with **internally deployed** capability (sub-takeoff RSI; same
    bounded curve as the original, which used research position). The remaining `1 − r` funds
-   safety, which raises the **shared** true frontier by `(1 − r) · 0.5` per second, so safety is a
-   public good.
+   safety, which raises **your own** true frontier by `(1 − r) · 1.2 · (top / 1.5)` per second.
+   Self-improvement speeds safety research just as it speeds capability research.
 2. *Internal*: fraction of available (lagged) latent capability run inside the lab.
 3. *External*: fraction of internal capability sold to customers. Profit depends on the two labs'
    external capability. External is the only tier the rival observes.
 
 Deployment fractions change instantly in both directions: rolling back and restoring are both free.
 
-**Risk**: `external + 0.6·(internal − external) + 0.25·(latent − internal)`, taking the max over labs,
-then the original hazard curve. The weights are `ADVANCED.internalRiskWeight` and `latentRiskWeight`.
+**Frontiers**: each lab has its own true safety frontier:
+`Sᵢ = background + own safety research + own real breakthroughs`. The background is the original's
+drift process at 25% speed, standing in for public safety research. Neither lab ever sees the
+other's frontier or estimate.
+
+**Risk**: each lab's risk capability is `external + 0.6·(internal − external) + 0.25·(latent − internal)`,
+put through the original hazard curve against *its own* frontier. Either lab can cause catastrophe,
+so the two rates add. The weights are `ADVANCED.internalRiskWeight` and `latentRiskWeight`.
 Without them, undeployed capability would be free and riskless, and the sliders would never
 involve a tradeoff.
 
-**Per-lab estimates**: the true frontier `S` is shared and never decreases. It rises through
-drift, safety funding, and real breakthroughs. Lab `i` sees only its own zone
-`S + bᵢ ± w`. Each offset `bᵢ` is an Ornstein–Uhlenbeck process (reversion 0.1/s) plus
+**Per-lab estimates**: every `Sᵢ` only increases. Lab `i` sees only its own zone
+`Sᵢ + bᵢ ± w`. Each offset `bᵢ` is an Ornstein–Uhlenbeck process (reversion 0.1/s) plus
 lab-specific *false breakthroughs*, which kick `bᵢ` up by U(1, 3) without moving `S`. *Real
-breakthroughs* (same size distribution and rate) raise `S`, and with it every lab's zone. A lab sees
+breakthroughs* (same size distribution and rate) raise that lab's `Sᵢ`, and with it its zone. A lab sees
 its zone jump but can't tell which kind of jump it was. The parameters make `bᵢ` mean-zero with
 stationary standard deviation `w/1.5`, so the truth lies outside the zone some of the time
 (~10–20% in tests).
 
 **Risk meter**: a 256-particle filter over the player's own offset. It uses the same OU + jump
 model, reweights particles by survival `exp(−∫rate)`, and resamples when ESS < N/2. It
-computes risk from the player's own tiers plus the rival's *external* deployment only, so it is
-labelled a lower bound.
+covers only the player's own lab. The rival's hazard doesn't depend on the player's offset, so it
+cancels out of the posterior, but it does add to the true risk. The meter is labelled "your lab only"
+for that reason.
 
 **Bot** (both modes; `BOT` in `sim.js`): it sees only its own zone and your external deployment. It
 sits 10% of the way up its zone. When behind you, it chases to 1.5 past you, but never beyond 60% of
 the way up its zone. In advanced mode it funds capability until its latent stopping point reaches
 target + 3 and otherwise funds safety 100%. It keeps internal/latent headroom (1.5/3) above its
 external deployment and lowers external so its risk-weighted capability stays at the target.
-Tuned with `src/tools/eval_bot.mjs` against scripted players (100 seeds per cell;
-`outputs/run_20260930_231644_bot_tuning/`). Against idle or careful players it adds ~0–1% catastrophe
-risk, versus 5–9% for the original bot in advanced mode. Against a careful player it roughly ties.
-The player's own choices set the catastrophe rate. Paradigm's bot, which chases without limit, is kept
+Tuned with `src/tools/eval_bot.mjs` against scripted players (100 seeds per cell). In advanced
+mode with per-lab frontiers: against idle or careful players, 0% catastrophe (original bot: 7% and
+34%), and it roughly ties a careful player. Against a player at their zone center it stays
+competitive, and the player's own risk drives the 25% catastrophe rate. Paradigm's bot, which chases without limit, is kept
 as `bot: 'original'` for the faithfulness regression.
 
 Seeding caveat: the original's seed → catastrophe-threshold hash barely mixes small integers. Seeds

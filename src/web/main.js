@@ -1,5 +1,5 @@
 import {
-  SIM, DEPLOY_LAG, mixSeed, UNCERTAINTY, createGame, tick, isLive, bandCenter, visibleRiskCapability,
+  SIM, DEPLOY_LAG, mixSeed, UNCERTAINTY, createGame, tick, isLive, bandCenter, playerRiskCapability, frontier,
   expectedMonthlyRisk, monthlyRisk, cumulativeRisk, monthsRemaining, gameDate,
 } from './sim.js';
 
@@ -64,7 +64,7 @@ function renderPanels() {
   const risk = expectedMonthlyRisk(g);
   $('#risk-value').textContent = `${(100 * risk).toFixed(2)}%`;
   $('#risk-card').dataset.level = RISK_LEVELS.find(([, r]) => risk >= r)?.[0] ?? 'quiet';
-  const c = visibleRiskCapability(g);
+  const c = playerRiskCapability(g);
   const center = bandCenter(g);
   const what = advanced ? 'Risk-weighted capability' : 'Frontier model';
   $('#risk-zone').textContent =
@@ -108,7 +108,7 @@ function showResult() {
       ['Latent capability', me.position.toFixed(1), bot.position.toFixed(1)],
       ['Avg. safety funding', ...g.labs.map((l) => `${Math.round((100 * l.safetyFunding) / Math.min(g.t, SIM.duration))}%`)],
     ] : [['Deployed capability', me.deployed.toFixed(1), bot.deployed.toFixed(1)]]),
-    ['True frontier', g.safety.toFixed(1), ''],
+    ['True safety frontier', ...(advanced ? [0, 1].map((i) => frontier(g, i).toFixed(1)) : [g.safety.toFixed(1), ''])],
   ];
   const table = $('#result-table');
   table.replaceChildren();
@@ -154,7 +154,7 @@ function viewport(g) {
   const lows = visible.flatMap((h) => [h.center - g.halfWidth, ...h.deployed]);
   const highs = visible.flatMap((h) => [h.center + g.halfWidth, ...h.deployed]);
   if (live) highs.push(g.labs[0].position, ...(advanced ? visible.flatMap((h) => [h.latent[0], h.internal[0]]) : []));
-  else highs.push(...visible.flatMap((h) => [h.safety, ...(advanced ? [...h.latent, ...h.internal] : [])]));
+  else highs.push(...visible.flatMap((h) => [...h.frontier, ...(advanced ? [...h.latent, ...h.internal] : [])]));
   const lo = Math.max(0, Math.min(...lows) - 2);
   const hi = Math.max(lo + 16, Math.max(...highs) + 2);
   return { start, end, lo, hi };
@@ -179,7 +179,7 @@ function drawChart() {
   const X = (t) => pad.left + ((t - start) / (end - start)) * (W - pad.left - pad.right);
   const Y = (v) => H - pad.bottom - ((v - lo) / (hi - lo)) * (H - pad.top - pad.bottom);
   const hist = [...g.history];
-  if (hist.at(-1).t < g.t) hist.push({ t: g.t, safety: g.safety, center: bandCenter(g), deployed: g.labs.map((l) => l.deployed), internal: g.labs.map((l) => l.internal), latent: g.labs.map((l) => l.position) });
+  if (hist.at(-1).t < g.t) hist.push({ t: g.t, frontier: g.labs.map((_, i) => frontier(g, i)), center: bandCenter(g), deployed: g.labs.map((l) => l.deployed), internal: g.labs.map((l) => l.internal), latent: g.labs.map((l) => l.position) });
 
   ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
   ctx.clearRect(0, 0, W, H);
@@ -232,7 +232,8 @@ function drawChart() {
   polyline(hist.map((h) => [X(h.t), Y(h.center + g.halfWidth)]), `rgba(${zone}, 0.35)`, 1);
 
   if (!isLive(g)) {
-    polyline(hist.map((h) => [X(h.t), Y(h.safety)]), css('--truth'), 2, [6, 5]);
+    polyline(hist.map((h) => [X(h.t), Y(h.frontier[0])]), css('--truth'), 2, [6, 5]);
+    if (advanced) polyline(hist.map((h) => [X(h.t), Y(h.frontier[1])]), css('--muted'), 2, [6, 5]);
     ctx.fillStyle = css('--truth');
     for (const e of g.events) ctx.fillText(e.real ? '▲' : '✕', X(e.t) - 4, pad.top + 8);
   }

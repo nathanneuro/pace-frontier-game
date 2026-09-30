@@ -15,7 +15,7 @@
         Somewhere inside the shaded <b>danger zone</b> is the safety frontier — deploy above it and every month risks catastrophe for everyone.
         You don't know exactly where it is.</p>
       <p class="muted advanced-only"><b>Advanced:</b> no accelerator — you set policy. Split research funding between
-        <i>capability</i> (builds latent capability) and <i>safety</i> (raises the real frontier, for both labs). Choose how much latent capability
+        <i>capability</i> (builds latent capability) and <i>safety</i> (raises <i>your own</i> safety frontier; the competitor has its own, which you never see). Choose how much latent capability
         to run <i>internally</i> (speeds your research via self-improvement) and how much of that to sell <i>externally</i> (earns money; the only thing
         your rival sees). Deployment rolls back and restores instantly. Risk weights: external 1, internal-only 0.6, latent-only 0.25.
         Your danger zone is only an estimate: the true frontier drifts around it and sometimes leaves it, and some apparent safety
@@ -26,7 +26,7 @@
     <section class="scoreboard">
       <div class="account you"><span class="label">Your cash</span><strong id="you-cash">$0</strong><span class="label">Net / month <b id="you-profit"></b></span></div>
       <div class="account them"><span class="label">Competitor cash</span><strong id="them-cash">$0</strong><span class="label">Net / month <b id="them-profit"></b></span></div>
-      <div class="account risk" id="risk-card" data-level="quiet"><span class="label">Expected risk / month<span class="advanced-only" title="Counts only your rival's external deployment; their hidden internal and latent capability adds risk you can't see."> (lower bound)</span></span><strong id="risk-value">0.00%</strong><span class="label" id="risk-zone">Below danger zone</span></div>
+      <div class="account risk" id="risk-card" data-level="quiet"><span class="label">Expected risk / month<span class="advanced-only" title="Your lab only: the competitor's own frontier and hidden capability are invisible to you, and its risk adds to yours."> · your lab only</span></span><strong id="risk-value">0.00%</strong><span class="label" id="risk-zone">Below danger zone</span></div>
     </section>
 
     <section class="chart-wrap">
@@ -49,7 +49,8 @@
         <span><i class="key zone"></i>Danger zone</span>
         <span class="advanced-only"><i class="key internal"></i>Internal</span>
         <span class="advanced-only"><i class="key latent"></i>Latent</span>
-        <span><i class="key truth"></i>True frontier (revealed after)</span>
+        <span><i class="key truth"></i>Your true frontier (revealed after)</span>
+        <span class="advanced-only"><i class="key truth them"></i>Competitor's true frontier (revealed after)</span>
       </div>
       <label class="control advanced-only"><span id="research-lo"></span><input id="research" type="range" min="0" max="100" step="1" value="70" data-default="70" aria-label="Research funding: safety to capabilities" /><span id="research-hi"></span></label>
       <label class="control advanced-only"><span id="internal-lo"></span><input id="internal" type="range" min="0" max="100" step="1" value="100" data-default="100" aria-label="Ready capability: held back to run internally" /><span id="internal-hi"></span></label>

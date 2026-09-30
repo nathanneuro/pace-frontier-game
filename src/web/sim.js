@@ -95,11 +95,15 @@ export const ADVANCED = Object.freeze({
   // Catastrophe-risk weight of internal-only and latent-only capability, relative to external (1).
   internalRiskWeight: 0.6,
   latentRiskWeight: 0.25,
-  // Frontier speed added by one lab putting all research funding into safety. Shared by both labs.
-  safetyResearchSpeed: 0.5,
-  // Each lab's estimate of the frontier is truth + its own hidden offset b. b mean-reverts
-  // (Ornstein-Uhlenbeck) and is kicked up by false breakthroughs. Real breakthroughs raise the
-  // true frontier and every lab's estimate. A lab sees the jump but not whether it was real.
+  // Each lab has its own true safety frontier: a shared background drift (the original's frontier
+  // process, scaled down) plus that lab's own safety research and real breakthroughs.
+  backgroundDriftScale: 0.25,
+  // Own-frontier speed from putting all research funding into safety, before the self-improvement
+  // multiplier (internal capability speeds safety research exactly as it speeds capability research).
+  safetyResearchSpeed: 1.2,
+  // Each lab's estimate of its frontier is truth + a hidden offset b. b mean-reverts
+  // (Ornstein-Uhlenbeck) and is kicked up by false breakthroughs. Real breakthroughs raise the lab's
+  // true frontier (and so its estimate). A lab sees the jump but not whether it was real.
   biasReversion: 0.1,
   realBreakthroughRate: 1 / 16,
   falseBreakthroughRate: 1 / 16,
@@ -185,7 +189,7 @@ function advanceSafety(g, dt) {
   const blend = -Math.expm1(-span / SAFETY_DRIFT.responseTime);
   const distance = m.target * span + (m.speed - m.target) * SAFETY_DRIFT.responseTime * blend;
   const scale = m.plateau ? PLATEAU.risingSpeedScale * advancePlateau(m.plateau, span) : 1;
-  g.safety += distance * scale;
+  g.safety += distance * scale * (g.advanced ? ADVANCED.backgroundDriftScale : 1);
   m.speed += (m.target - m.speed) * blend;
 }
 
@@ -231,8 +235,11 @@ export function isLive(g) {
   return g.phase === 'running' || g.phase === 'settling';
 }
 
-// Each lab's estimated frontier (center of its danger zone).
-export const bandCenter = (g, i = 0) => g.safety + g.labs[i].bias;
+// Lab i's true safety frontier. Classic: one shared frontier (ownSafety stays 0).
+export const frontier = (g, i = 0) => g.safety + g.labs[i].ownSafety;
+
+// Lab i's estimated frontier (center of its danger zone).
+export const bandCenter = (g, i = 0) => frontier(g, i) + g.labs[i].bias;
 
 // Capability that generates catastrophe risk for one lab: external counts fully, internal-only and
 // latent-only capability at their weights. In classic mode this is just deployed capability.
@@ -242,9 +249,20 @@ const labRisk = (g, l) => l.deployed
 
 export const riskCapability = (g) => Math.max(0, ...g.labs.map((l) => labRisk(g, l)));
 
-// What the player (lab 0) can compute: its own risk plus the rival's external deployment only.
-// A lower bound on riskCapability whenever the rival holds undeployed capability.
-export const visibleRiskCapability = (g) => Math.max(0, labRisk(g, g.labs[0]), g.labs[1].deployed);
+// Lab i's own catastrophe hazard rate, against its own frontier.
+export const labHazardRate = (g, i) => hazardRate(labRisk(g, g.labs[i]), frontier(g, i));
+
+// Shared catastrophe hazard. Classic: the most capable deployment against the shared frontier.
+// Advanced: either lab can cause catastrophe, each against its own frontier, so rates add.
+export function totalHazardRate(g) {
+  if (!g.advanced) return hazardRate(riskCapability(g), g.safety);
+  return labHazardRate(g, 0) + labHazardRate(g, 1);
+}
+
+// Capability behind the risk the player can estimate. Classic: everything relevant is visible.
+// Advanced: only the player's own lab; the rival's frontier and hidden tiers are unknown to it.
+export const playerRiskCapability = (g) =>
+  (g.advanced ? labRisk(g, g.labs[0]) : Math.max(0, labRisk(g, g.labs[0]), g.labs[1].deployed));
 
 function normal(rng) {
   return Math.sqrt(-2 * Math.log(1 - random(rng))) * Math.cos(2 * Math.PI * random(rng));
@@ -334,7 +352,7 @@ export function createGame(seed = 1, {
     // research = capability share of research funding (advanced). Classic: all fractions are 1.
     labs: [0, 1].map(() => ({
       position: 0, available: 0, internalFraction: 1, externalFraction: 1, internal: 0, deployed: 0, deployments: [],
-      research: 1, safetyFunding: 0, accumulated: 0, bias: startBias(), speed: 0, held: false, cash: 0, profit: PROFIT.baseProfit,
+      research: 1, safetyFunding: 0, ownSafety: 0, accumulated: 0, bias: startBias(), speed: 0, held: false, cash: 0, profit: PROFIT.baseProfit,
     })),
     history: [],
   };
@@ -349,7 +367,7 @@ export function createGame(seed = 1, {
 
 function record(g) {
   g.history.push({
-    t: g.t, safety: g.safety, center: bandCenter(g, 0),
+    t: g.t, frontier: g.labs.map((_, i) => frontier(g, i)), center: bandCenter(g, 0),
     deployed: g.labs.map((l) => l.deployed), internal: g.labs.map((l) => l.internal), latent: g.labs.map((l) => l.position),
   });
 }
@@ -365,34 +383,35 @@ function finish(g, reason) {
   g.scores = g.labs.map((l) => l.cash);
 }
 
-// Hazard rate under each belief particle, from the player's visible information.
+// Hazard rate under each belief particle, from the player's information. Advanced: the player's own
+// lab only. The rival's hazard doesn't depend on the player's offset, so it cancels out of the posterior.
 function beliefRates(g) {
-  const c = visibleRiskCapability(g);
+  const c = playerRiskCapability(g);
   const center = bandCenter(g, 0);
   return g.belief.offsets.map((b) => hazardRate(c, center - b));
 }
 
-// Advanced-mode world dynamics for one tick: safety research, breakthroughs, offset drift.
-// The true frontier only ever increases.
+// Advanced-mode world dynamics for one tick, per lab: own safety research, real and false
+// breakthroughs, offset drift. Every lab's true frontier only ever increases.
 function advanceWorld(g, dt) {
   const A = ADVANCED;
   const rng = g.worldRng;
-  g.safety += g.labs.reduce((sum, l) => sum + (1 - l.research), 0) * A.safetyResearchSpeed * dt;
   const jump = () => uniform(rng, A.breakthroughMin, A.breakthroughMax);
   let seen = 0; // jump in the player's estimate
-  if (random(rng) < A.realBreakthroughRate * dt) {
-    seen = jump();
-    g.safety += seen;
-    g.events.push({ t: g.t, size: seen, real: true });
-  }
   g.labs.forEach((lab, i) => {
+    if (g.phase === 'running') {
+      const selfImprovement = topSpeed(g, lab) / SPEED.initialSpeed;
+      lab.ownSafety += (1 - lab.research) * A.safetyResearchSpeed * selfImprovement * dt;
+    }
     lab.bias = driftOffset(lab.bias, g.proc, dt, rng);
-    if (random(rng) < g.proc.falseRate * dt) {
+    for (const real of [true, false]) {
+      if (!(random(rng) < (real ? A.realBreakthroughRate : g.proc.falseRate) * dt)) continue;
       const size = jump();
-      lab.bias += size;
+      if (real) lab.ownSafety += size;
+      else lab.bias += size;
       if (i === 0) {
         seen += size;
-        g.events.push({ t: g.t, size, real: false });
+        g.events.push({ t: g.t, size, real });
       }
     }
   });
@@ -424,7 +443,7 @@ function resample(g) {
 
 export function step(g) {
   const dt = SIM.dt;
-  const rate0 = hazardRate(riskCapability(g), g.safety);
+  const rate0 = totalHazardRate(g);
   const belief0 = beliefRates(g);
   const profit0 = g.labs.map((lab, i) => profitRate(lab.deployed, g.labs[1 - i].deployed));
   g.t += dt;
@@ -441,7 +460,7 @@ export function step(g) {
   }
   advanceSafety(g, dt);
   if (g.advanced) advanceWorld(g, dt);
-  g.hazard += ((rate0 + hazardRate(riskCapability(g), g.safety)) / 2) * dt;
+  g.hazard += ((rate0 + totalHazardRate(g)) / 2) * dt;
   // Survival likelihood under each particle: P(survive dt | offset) = exp(-rate dt).
   beliefRates(g).forEach((r, k) => (g.belief.logWeights[k] -= ((belief0[k] + r) / 2) * dt));
   if (g.advanced) resample(g);

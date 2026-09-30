@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   SIM, createGame, tick, isLive, bandCenter, beliefWeights, expectedMonthlyRisk,
-  monthlyRisk, hazardRate, riskCapability, visibleRiskCapability, setControls, ADVANCED, mixSeed,
+  monthlyRisk, hazardRate, riskCapability, playerRiskCapability, frontier, labHazardRate, totalHazardRate, setControls, ADVANCED, mixSeed,
 } from '../src/web/sim.js';
 
 function play(g, policy) {
@@ -104,9 +104,13 @@ test('advanced: capability share of funding sets research speed', () => {
   assert.equal(latent(0), 0);
 });
 
-test('advanced: safety funding raises the shared frontier', () => {
-  const frontier = (research) => runTo(advancedGame(4), 40, { ...all, research }).safety;
-  assert.ok(frontier(0) > frontier(1) + 5);
+test('advanced: safety funding raises only your own frontier', () => {
+  const run = (research) => runTo(advancedGame(4), 40, { ...all, research });
+  const [funded, unfunded] = [run(0), run(1)];
+  assert.ok(frontier(funded, 0) > frontier(unfunded, 0) + 20);
+  // With no safety funding, your own frontier gains only background drift and real breakthroughs.
+  const breakthroughs = unfunded.events.filter((e) => e.real).reduce((a, e) => a + e.size, 0);
+  assert.ok(Math.abs(unfunded.labs[0].ownSafety - breakthroughs) < 1e-9);
 });
 
 test('advanced: external earns more than internal-only', () => {
@@ -128,12 +132,12 @@ test('advanced: risk weights external > internal-only > latent-only', () => {
   assert.ok(Math.abs(latentOnly - ADVANCED.latentRiskWeight * g.labs[0].position) < 1e-9);
 });
 
-test('advanced: player risk estimate sees only the rival external deployment', () => {
+test('advanced: each lab risks catastrophe against its own frontier; player estimates only its own', () => {
   const g = runTo(advancedGame(4), 40, all);
   setControls(g, 0, { research: 1, internal: 0, external: 0 });
   setControls(g, 1, { research: 1, internal: 1, external: 0.2 });
-  assert.equal(visibleRiskCapability(g), Math.max(ADVANCED.latentRiskWeight * g.labs[0].position, g.labs[1].deployed));
-  assert.ok(visibleRiskCapability(g) < riskCapability(g));
+  assert.equal(playerRiskCapability(g), ADVANCED.latentRiskWeight * g.labs[0].position);
+  assert.equal(totalHazardRate(g), labHazardRate(g, 0) + labHazardRate(g, 1));
 });
 
 test('advanced: frontier never decreases; truth wanders around and sometimes out of each zone', () => {
@@ -142,11 +146,12 @@ test('advanced: frontier never decreases; truth wanders around and sometimes out
   const kinds = new Set();
   for (let seed = 1; seed <= 30; seed++) {
     const g = advancedGame(seed);
-    let last = g.safety;
+    let last = [0, 1].map((i) => frontier(g, i));
     while (isLive(g)) {
       tick(g, { research: 0.7, internal: 1, external: 1 });
-      assert.ok(g.safety >= last, `seed ${seed}: frontier fell at t=${g.t}`);
-      last = g.safety;
+      const now = [0, 1].map((i) => frontier(g, i));
+      assert.ok(now.every((f, i) => f >= last[i]), `seed ${seed}: a frontier fell at t=${g.t}`);
+      last = now;
       for (const lab of g.labs) {
         samples++;
         if (Math.abs(lab.bias) > g.halfWidth) outside++;

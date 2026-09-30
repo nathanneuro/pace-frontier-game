@@ -2,7 +2,7 @@
 // Usage: node src/tools/eval_bot.mjs [seeds=100]
 // Writes outputs/run_<timestamp>_bot_tuning/{metadata.json,results.json,summary.md}.
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { BOT, mixSeed, createGame, tick, isLive, bandCenter, stoppingDistance, riskCapability } from '../web/sim.js';
+import { BOT, mixSeed, createGame, tick, isLive, bandCenter, stoppingDistance, riskCapability, frontier } from '../web/sim.js';
 
 const SEEDS = Number(process.argv[2] ?? 100);
 
@@ -47,7 +47,7 @@ function playOne(seed, advanced, bot, position) {
     if (g.labs[1].deployed >= g.labs[0].deployed) ahead++;
     const b = g.labs[1];
     const botRisk = b.deployed + g.internalRiskWeight * (b.internal - b.deployed) + g.latentRiskWeight * Math.max(0, b.position - b.internal);
-    if (botRisk > g.safety) botAboveTruth++;
+    if (botRisk > frontier(g, 1)) botAboveTruth++;
   }
   return {
     crashed: g.reason === 'catastrophe',

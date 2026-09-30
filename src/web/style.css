@@ -55,6 +55,7 @@ footer { display: grid; grid-template-columns: auto 1fr; gap: 10px 16px; padding
 .key.them { border-color: var(--them); }
 .key.zone { height: 10px; border: 0; background: linear-gradient(to top, rgba(var(--zone), 0.05), rgba(var(--zone), 0.45)); }
 .key.truth { border-top: 2px dashed var(--truth); }
+.key.truth.them { border-top-color: var(--muted); }
 
 button { font: inherit; cursor: pointer; border: 1px solid var(--fg); background: var(--bg); color: var(--fg); padding: 10px 16px; }
 #accelerator { grid-column: 1 / -1; min-height: 52px; background: var(--fg); color: var(--bg); touch-action: none; user-select: none; -webkit-user-select: none; }
