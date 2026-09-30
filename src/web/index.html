@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pace · Hidden Frontier</title>
+  <link rel="icon" href="data:," />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main id="app">
+    <header>
+      <h1>Pace <small>· hidden frontier</small></h1>
+      <p class="muted">You run an AI lab. Hold to accelerate research; release to coast. Deployments ship two weeks after research.
+        Somewhere inside the shaded <b>danger zone</b> is the safety frontier — deploy above it and every month risks catastrophe for everyone.
+        You don't know exactly where it is.</p>
+    </header>
+
+    <section class="scoreboard">
+      <div class="account you"><span class="label">Your cash</span><strong id="you-cash">$0</strong><span class="label">Net / month <b id="you-profit"></b></span></div>
+      <div class="account them"><span class="label">Competitor cash</span><strong id="them-cash">$0</strong><span class="label">Net / month <b id="them-profit"></b></span></div>
+      <div class="account risk" id="risk-card" data-level="quiet"><span class="label">Expected risk / month</span><strong id="risk-value">0.00%</strong><span class="label" id="risk-zone">Below danger zone</span></div>
+    </section>
+
+    <section class="chart-wrap">
+      <canvas id="chart" aria-label="Deployed models, danger zone, and your pending research"></canvas>
+      <section id="result" hidden>
+        <h2 id="result-title"></h2>
+        <p id="result-scores"></p>
+        <p id="result-risk" class="muted"></p>
+        <p id="result-frontier" class="muted"></p>
+        <button id="again">Play again</button>
+      </section>
+    </section>
+
+    <footer>
+      <div class="clock"><span class="label">Months remaining</span><strong id="timer"></strong><span class="label" id="date"></span></div>
+      <div class="legend">
+        <span><i class="key you"></i>You</span>
+        <span><i class="key them"></i>Competitor</span>
+        <span><i class="key zone"></i>Danger zone</span>
+        <span><i class="key truth"></i>True frontier (revealed after)</span>
+      </div>
+      <button id="accelerator" aria-pressed="false">Accelerate <small>[hold Space / click]</small></button>
+    </footer>
+  </main>
+  <script type="module" src="main.js"></script>
+</body>
+</html>
