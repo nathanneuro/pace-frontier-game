@@ -71,8 +71,21 @@ const HAZARD = Object.freeze({
 export const UNCERTAINTY = Object.freeze({
   halfWidth: 3,
   gridPoints: 41,
-  // Where in its danger zone the bot aims: 0 = lower edge, 1 = upper edge.
-  botBandPosition: 0.25,
+});
+
+// Practice bot. Positions are within the bot's own danger zone: 0 = lower edge, 1 = upper edge.
+// It sits at safePosition; when behind the rival's external deployment it chases to `lead` past
+// the rival, but never beyond racePosition. Pass `bot: 'original'` to createGame for Paradigm's
+// bot (aims at 0.25 and chases without limit).
+// Tuned with src/tools/eval_bot.mjs: vs. careful players it roughly ties while adding ~no risk;
+// vs. players deep in their zone it keeps up partially but won't follow past 0.6.
+export const BOT = Object.freeze({
+  safePosition: 0.1,
+  racePosition: 0.6,
+  lead: 1.5,
+  // Advanced mode: internal and latent capability kept above external deployment.
+  internalHeadroom: 1.5,
+  latentHeadroom: 3,
 });
 
 // Advanced mode. Each lab splits research funding between capability and safety, and holds three
@@ -94,9 +107,6 @@ export const ADVANCED = Object.freeze({
   breakthroughMax: 3,
   // Particles in the player's belief over its own offset.
   particles: 256,
-  // Bot keeps this much internal and latent capability above what it deploys externally.
-  botInternalHeadroom: 1.5,
-  botLatentHeadroom: 3,
 });
 
 export const SECONDS_PER_MONTH = 1 / (12 * CLOCK.yearsPerSecond);
@@ -269,6 +279,7 @@ export function createGame(seed = 1, {
   gridPoints = UNCERTAINTY.gridPoints,
   plateaus = true,
   advanced = false,
+  bot = BOT,
   internalRiskWeight = advanced ? ADVANCED.internalRiskWeight : 1,
   latentRiskWeight = advanced ? ADVANCED.latentRiskWeight : 0,
 } = {}) {
@@ -300,6 +311,7 @@ export function createGame(seed = 1, {
     threshold: -Math.log(u),
     halfWidth,
     advanced,
+    bot,
     internalRiskWeight,
     latentRiskWeight,
     proc,
@@ -318,7 +330,7 @@ export function createGame(seed = 1, {
     // research = capability share of research funding (advanced). Classic: all fractions are 1.
     labs: [0, 1].map(() => ({
       position: 0, available: 0, internalFraction: 1, externalFraction: 1, internal: 0, deployed: 0, deployments: [],
-      research: 1, bias: startBias(), speed: 0, held: false, cash: 0, profit: PROFIT.baseProfit,
+      research: 1, safetyFunding: 0, accumulated: 0, bias: startBias(), speed: 0, held: false, cash: 0, profit: PROFIT.baseProfit,
     })),
     history: [],
   };
@@ -342,6 +354,7 @@ function finish(g, reason) {
   g.phase = reason === 'catastrophe' ? 'crashed' : 'finished';
   g.reason = reason;
   for (const lab of g.labs) {
+    lab.accumulated = lab.cash;
     if (reason === 'catastrophe') [lab.cash, lab.profit] = [0, 0];
     [lab.held, lab.speed] = [false, 0];
   }
@@ -429,6 +442,7 @@ export function step(g) {
   beliefRates(g).forEach((r, k) => (g.belief.logWeights[k] -= ((belief0[k] + r) / 2) * dt));
   if (g.advanced) resample(g);
   const years = dt * CLOCK.yearsPerSecond;
+  if (g.phase === 'running') for (const lab of g.labs) lab.safetyFunding += (1 - lab.research) * dt;
   g.labs.forEach((lab, i) => {
     lab.profit = profitRate(lab.deployed, g.labs[1 - i].deployed);
     lab.cash = Math.max(0, lab.cash + ((profit0[i] + lab.profit) / 2) * years);
@@ -473,23 +487,36 @@ export function setControls(g, idx, { research, internal, external }) {
   applyFractions(lab);
 }
 
-// Practice bot. Same rule as the original, except it aims at a point inside its own danger zone
-// instead of the hidden true frontier. Researches capability while its stopping point stays below
-// target; if behind the rival's external deployment, targets 1.5 past it. Advanced: funds safety
-// whenever it isn't researching capability, deploys externally up to the target, and keeps
-// internal and latent headroom above it.
-export function botPolicy(g, idx = 1) {
+// Bot capability target. Original: aim a quarter into the zone; if behind, 1.5 past the rival,
+// without limit. Default: sit at the safe position; chase the rival only up to the race cap.
+function botTarget(g, idx) {
   const me = g.labs[idx];
   const rival = g.labs[1 - idx];
-  const aim = bandCenter(g, idx) + g.halfWidth * (2 * UNCERTAINTY.botBandPosition - 1);
-  const target = Math.max(aim, me.deployed < rival.deployed ? rival.deployed + 1.5 : 0);
+  const behind = me.deployed < rival.deployed;
+  const at = (position) => bandCenter(g, idx) + g.halfWidth * (2 * position - 1);
+  if (g.bot === 'original') return Math.max(at(0.25), behind ? rival.deployed + 1.5 : 0);
+  const safe = at(g.bot.safePosition);
+  return behind ? Math.max(safe, Math.min(rival.deployed + g.bot.lead, at(g.bot.racePosition))) : safe;
+}
+
+// Researches capability while its stopping point stays below target (0.3 hysteresis). The bot
+// sees only its own zone and the rival's external deployment. Advanced: funds safety whenever it
+// isn't researching capability, and keeps internal/latent headroom above external deployment while
+// lowering external so its risk-weighted capability stays at the target.
+export function botPolicy(g, idx = 1) {
+  const me = g.labs[idx];
+  const target = botTarget(g, idx);
   const pushing = g.advanced ? me.research > 0 : me.held;
-  const held = me.position + stoppingDistance(g, me) < target + (g.advanced ? ADVANCED.botLatentHeadroom : 0) - (pushing ? 0 : 0.3);
-  if (!g.advanced) return { held };
-  const internal = Math.min(me.available, target + ADVANCED.botInternalHeadroom);
-  const external = Math.min(internal, target);
+  const hysteresis = pushing ? 0 : 0.3;
+  if (!g.advanced) return { held: me.position + stoppingDistance(g, me) < target - hysteresis };
+  const { internalHeadroom, latentHeadroom } = g.bot === 'original' ? BOT : g.bot;
+  const riskMargin = g.internalRiskWeight * internalHeadroom + g.latentRiskWeight * (latentHeadroom - internalHeadroom);
+  const externalTarget = target - (g.bot === 'original' ? 0 : riskMargin);
+  const research = me.position + stoppingDistance(g, me) < externalTarget + latentHeadroom - hysteresis ? 1 : 0;
+  const internal = Math.max(0, Math.min(me.available, externalTarget + internalHeadroom));
+  const external = Math.max(0, Math.min(internal, externalTarget));
   return {
-    research: held ? 1 : 0,
+    research,
     internal: me.available > 0 ? internal / me.available : 1,
     external: internal > 0 ? external / internal : 1,
   };

@@ -35,6 +35,9 @@ node --test tests/*.test.mjs
 
 Includes a regression that pins our sim (with `w=0`) to numbers produced by the original game's code.
 
+Bot tuning: `node src/tools/eval_bot.mjs [seeds]` plays bot variants against scripted players and
+writes a run directory under `outputs/`.
+
 ## Layout
 
 - `src/web/sim.js` — pure simulation (no DOM): mechanics, hidden bias, Bayesian expected-risk meter, bot.

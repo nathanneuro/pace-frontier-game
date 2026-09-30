@@ -98,9 +98,21 @@ model, reweights particles by survival `exp(−∫rate)`, and resamples when ESS
 computes risk from the player's own tiers plus the rival's *external* deployment only, so it is
 labelled a lower bound.
 
-**Bot**: aims a quarter of the way up its own zone. It funds capability until its latent stopping
-point reaches target + 3, and otherwise funds safety 100%. It deploys externally up to the target
-and internally up to target + 1.5, and sees only your external deployment.
+**Bot** (both modes; `BOT` in `sim.js`): it sees only its own zone and your external deployment. It
+sits 10% of the way up its zone. When behind you, it chases to 1.5 past you, but never beyond 60% of
+the way up its zone. In advanced mode it funds capability until its latent stopping point reaches
+target + 3 and otherwise funds safety 100%. It keeps internal/latent headroom (1.5/3) above its
+external deployment and lowers external so its risk-weighted capability stays at the target.
+Tuned with `src/tools/eval_bot.mjs` against scripted players (100 seeds per cell;
+`outputs/run_20260930_231644_bot_tuning/`). Against idle or careful players it adds ~0–1% catastrophe
+risk, versus 5–9% for the original bot in advanced mode. Against a careful player it roughly ties.
+The player's own choices set the catastrophe rate. Paradigm's bot, which chases without limit, is kept
+as `bot: 'original'` for the faithfulness regression.
+
+Seeding caveat: the original's seed → catastrophe-threshold hash barely mixes small integers. Seeds
+1–100 give thresholds around 9 instead of Exp(1) (mean 1), so `?seed=42` games are nearly
+unlosable. Live games use random 32-bit seeds and are unaffected. The eval spreads its seeds
+over 32 bits.
 
 After the game: the true frontier, both labs' internal and latent lines, and markers for your
 apparent breakthroughs (▲ real, ✕ false) are revealed.

@@ -15,7 +15,7 @@ const hugFrontier = (g) => g.labs[0].position < g.safety - 1;
 // Reference numbers produced by running the original Pace bundle's simulation
 // (seed 42, this policy, bot opponent). With halfWidth=0 our sim must match it.
 test('halfWidth=0 reproduces the original game', () => {
-  const g = play(createGame(42, { halfWidth: 0, gridPoints: 1 }), hugFrontier);
+  const g = play(createGame(42, { halfWidth: 0, gridPoints: 1, bot: 'original' }), hugFrontier);
   assert.equal(g.phase, 'finished');
   assert.ok(Math.abs(g.hazard - 0.035752) < 1e-6, `hazard ${g.hazard}`);
   assert.ok(Math.abs(g.safety - 73.0793) < 1e-4, `safety ${g.safety}`);
@@ -173,4 +173,11 @@ test('mode inputs are validated', () => {
   assert.throws(() => setControls(createGame(1), 0, all), /advanced mode/);
   assert.throws(() => tick(createGame(1), all), /boolean/);
   assert.throws(() => tick(createGame(1, { advanced: true }), { ...all, research: 2 }), /\[0, 1\]/);
+});
+
+test('catastrophe zeroes payouts but keeps what each lab accumulated', () => {
+  const g = play(createGame(1), () => true);
+  assert.equal(g.reason, 'catastrophe');
+  assert.deepEqual(g.scores, [0, 0]);
+  assert.ok(g.labs[0].accumulated > 1e10, `accumulated ${g.labs[0].accumulated}`);
 });

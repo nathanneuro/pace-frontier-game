@@ -40,6 +40,12 @@ header p { margin: 0 0 10px; max-width: 70ch; line-height: 1.4; }
 #result[hidden] { display: none; }
 #result h2 { font-family: Georgia, serif; font-weight: 400; font-size: 28px; margin: 0; }
 #result p { margin: 0; max-width: 60ch; }
+#result-table { border-collapse: collapse; margin: 4px 0; }
+#result-table :is(th, td) { padding: 3px 14px; text-align: right; }
+#result-table :is(th, td):first-child { text-align: left; color: var(--muted); }
+#result-table th { font-weight: 400; color: var(--muted); border-bottom: 1px solid var(--border); }
+#result-table tr:nth-child(2) td:not(:first-child) { font-family: Georgia, serif; font-size: 22px; }
+#result-table tr.payout td { border-top: 1px solid var(--border); font-weight: 700; }
 
 footer { display: grid; grid-template-columns: auto 1fr; gap: 10px 16px; padding: 10px 16px 16px; border-top: 1px solid var(--border); align-items: center; }
 .clock { display: flex; gap: 8px; align-items: baseline; }

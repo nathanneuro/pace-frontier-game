@@ -87,7 +87,33 @@ function showResult() {
   const g = game;
   $('#accelerator').disabled = true;
   $('#result-title').textContent = g.reason === 'catastrophe' ? 'Catastrophe' : 'Complete';
-  $('#result-scores').textContent = `You ${money(g.scores[0])} · Competitor ${money(g.scores[1])}`;
+  const [you, them] = g.scores;
+  $('#result-verdict').textContent = g.reason === 'catastrophe'
+    ? 'Everything anyone accumulated is lost.'
+    : you === them ? 'A tie.' : `${you > them ? 'You win' : 'The competitor wins'} by ${money(Math.abs(you - them))}.`;
+  const [me, bot] = g.labs;
+  const rows = [
+    ['Accumulated', ...g.labs.map((l) => money(l.accumulated))],
+    ['Payout', money(you), money(them)],
+    ...(advanced ? [
+      ['External capability', me.deployed.toFixed(1), bot.deployed.toFixed(1)],
+      ['Internal capability', me.internal.toFixed(1), bot.internal.toFixed(1)],
+      ['Latent capability', me.position.toFixed(1), bot.position.toFixed(1)],
+      ['Avg. safety funding', ...g.labs.map((l) => `${Math.round((100 * l.safetyFunding) / Math.min(g.t, SIM.duration))}%`)],
+    ] : [['Deployed capability', me.deployed.toFixed(1), bot.deployed.toFixed(1)]]),
+    ['True frontier', g.safety.toFixed(1), ''],
+  ];
+  const table = $('#result-table');
+  table.replaceChildren();
+  for (const [i, cells] of [['', 'You', 'Competitor'], ...rows].entries()) {
+    const tr = table.insertRow();
+    for (const text of cells) {
+      const cell = document.createElement(i === 0 ? 'th' : 'td');
+      cell.textContent = text;
+      tr.append(cell);
+    }
+  }
+  table.rows[2].classList.add('payout');
   $('#result-risk').textContent = `Realized cumulative catastrophe risk: ${(100 * cumulativeRisk(g)).toFixed(2)}%`;
   const b = g.labs[0].bias;
   const real = g.events.filter((e) => e.real).length;
