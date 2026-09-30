@@ -58,3 +58,49 @@ Design choices worth revisiting:
 - The bot's zone position is a free parameter that strongly affects how risky the race is.
 - In multiplayer the server must withhold `S` and `b` from clients (the original already filters
   snapshots server-side). In this client-only build a player could read them from devtools.
+
+## Advanced mode (`?mode=advanced`)
+
+Motivation: the paper assumes capability only rises (`a ∈ [0, 1]`). In reality a lab can stop
+running a model at any time, internally or externally. OpenAI did exactly this with its Internal
+Model 1 after the 2026 Hugging Face breach. Advanced mode drops that assumption and makes several
+other things endogenous.
+
+**Controls** (no accelerator; the button only starts the game):
+
+1. *Research*: capability share `r` of research funding. Latent research speed approaches
+   `r · top`, where top speed rises with **internally deployed** capability (sub-takeoff RSI; same
+   bounded curve as the original, which used research position). The remaining `1 − r` funds
+   safety, which raises the **shared** true frontier by `(1 − r) · 0.5` per second, so safety is a
+   public good.
+2. *Internal*: fraction of available (lagged) latent capability run inside the lab.
+3. *External*: fraction of internal capability sold to customers. Profit depends on the two labs'
+   external capability. External is the only tier the rival observes.
+
+Deployment fractions change instantly in both directions: rolling back and restoring are both free.
+
+**Risk**: `external + 0.6·(internal − external) + 0.25·(latent − internal)`, taking the max over labs,
+then the original hazard curve. The weights are `ADVANCED.internalRiskWeight` and `latentRiskWeight`.
+Without them, undeployed capability would be free and riskless, and the sliders would never
+involve a tradeoff.
+
+**Per-lab estimates**: the true frontier `S` is shared and never decreases. It rises through
+drift, safety funding, and real breakthroughs. Lab `i` sees only its own zone
+`S + bᵢ ± w`. Each offset `bᵢ` is an Ornstein–Uhlenbeck process (reversion 0.1/s) plus
+lab-specific *false breakthroughs*, which kick `bᵢ` up by U(1, 3) without moving `S`. *Real
+breakthroughs* (same size distribution and rate) raise `S`, and with it every lab's zone. A lab sees
+its zone jump but can't tell which kind of jump it was. The parameters make `bᵢ` mean-zero with
+stationary standard deviation `w/1.5`, so the truth lies outside the zone some of the time
+(~10–20% in tests).
+
+**Risk meter**: a 256-particle filter over the player's own offset. It uses the same OU + jump
+model, reweights particles by survival `exp(−∫rate)`, and resamples when ESS < N/2. It
+computes risk from the player's own tiers plus the rival's *external* deployment only, so it is
+labelled a lower bound.
+
+**Bot**: aims a quarter of the way up its own zone. It funds capability until its latent stopping
+point reaches target + 3, and otherwise funds safety 100%. It deploys externally up to the target
+and internally up to target + 1.5, and sees only your external deployment.
+
+After the game: the true frontier, both labs' internal and latent lines, and markers for your
+apparent breakthroughs (▲ real, ✕ false) are revealed.

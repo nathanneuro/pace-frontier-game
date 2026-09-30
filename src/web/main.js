@@ -1,5 +1,5 @@
 import {
-  SIM, DEPLOY_LAG, UNCERTAINTY, createGame, tick, isLive, bandCenter, frontierCapability,
+  SIM, DEPLOY_LAG, UNCERTAINTY, createGame, tick, isLive, bandCenter, visibleRiskCapability,
   expectedMonthlyRisk, monthlyRisk, cumulativeRisk, monthsRemaining, gameDate,
 } from './sim.js';
 
@@ -7,6 +7,8 @@ const $ = (sel) => document.querySelector(sel);
 const params = new URLSearchParams(location.search);
 const halfWidth = params.has('w') ? Number(params.get('w')) : UNCERTAINTY.halfWidth;
 if (!(Number.isFinite(halfWidth) && halfWidth >= 0)) throw Error(`Invalid ?w=${params.get('w')}; expected a non-negative number.`);
+const advanced = params.get('mode') === 'advanced';
+document.body.dataset.mode = advanced ? 'advanced' : 'classic';
 
 const RISK_LEVELS = [['critical', 0.025], ['warning', 0.004], ['watch', 0.001]].map(([k, rate]) => [k, monthlyRisk(rate)]);
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -14,18 +16,26 @@ const WINDOW = 12;
 
 let game;
 let held = false;
+let started = false;
 let seed;
 
 function newSeed() {
   return crypto.getRandomValues(new Uint32Array(1))[0];
 }
 
+// Sets up a new game that waits for Start (click or Space) before the clock runs.
 function start(s) {
   seed = s;
-  game = createGame(seed, { halfWidth });
+  started = false;
+  held = false;
+  for (const el of document.querySelectorAll('.control input')) el.value = el.dataset.default;
+  game = createGame(seed, { halfWidth, advanced });
   $('#result').hidden = true;
   $('#accelerator').disabled = false;
 }
+
+const pct = (sel) => Number($(sel).value) / 100;
+const controls = () => ({ research: pct('#research'), internal: pct('#internal'), external: pct('#external') });
 
 function money(x) {
   const a = Math.abs(x);
@@ -54,13 +64,22 @@ function renderPanels() {
   const risk = expectedMonthlyRisk(g);
   $('#risk-value').textContent = `${(100 * risk).toFixed(2)}%`;
   $('#risk-card').dataset.level = RISK_LEVELS.find(([, r]) => risk >= r)?.[0] ?? 'quiet';
-  const c = frontierCapability(g);
+  const c = visibleRiskCapability(g);
   const center = bandCenter(g);
+  const what = advanced ? 'Risk-weighted capability' : 'Frontier model';
   $('#risk-zone').textContent =
-    c <= center - g.halfWidth ? 'Frontier model below danger zone'
-      : c >= center + g.halfWidth ? 'Frontier model above danger zone'
-        : 'Frontier model in danger zone';
+    c <= center - g.halfWidth ? `${what} below danger zone`
+      : c >= center + g.halfWidth ? `${what} above danger zone`
+        : `${what} in danger zone`;
+  if (advanced) {
+    const me = g.labs[0];
+    $('#research-value').textContent = `${$('#research').value}% capability · ${100 - $('#research').value}% safety`;
+    $('#internal-value').textContent = `${$('#internal').value}% · ${me.internal.toFixed(1)} of ${me.available.toFixed(1)} ready (latent ${me.position.toFixed(1)})`;
+    $('#external-value').textContent = `${$('#external').value}% · ${me.deployed.toFixed(1)} of ${me.internal.toFixed(1)} internal`;
+  }
 
+  $('#pedal-text').textContent = !started ? 'Start' : !isLive(g) ? 'Game over' : advanced ? 'Running' : 'Accelerate';
+  $('#accelerator').disabled = !isLive(g) || (advanced && started);
   $('#accelerator').setAttribute('aria-pressed', String(held && g.phase === 'running'));
 }
 
@@ -70,10 +89,12 @@ function showResult() {
   $('#result-title').textContent = g.reason === 'catastrophe' ? 'Catastrophe' : 'Complete';
   $('#result-scores').textContent = `You ${money(g.scores[0])} · Competitor ${money(g.scores[1])}`;
   $('#result-risk').textContent = `Realized cumulative catastrophe risk: ${(100 * cumulativeRisk(g)).toFixed(2)}%`;
-  const b = g.bias;
+  const b = g.labs[0].bias;
+  const real = g.events.filter((e) => e.real).length;
   $('#result-frontier').textContent = g.halfWidth === 0
     ? 'The frontier was shown exactly this game (w=0).'
-    : `The true frontier was ${Math.abs(b).toFixed(2)} ${b > 0 ? 'below' : 'above'} the center of the danger zone (zone half-width ${g.halfWidth}).`;
+    : `The true frontier ended ${Math.abs(b).toFixed(2)} ${b > 0 ? 'below' : 'above'} the center of your danger zone (zone half-width ${g.halfWidth}).`
+      + (advanced ? ` ${real} of ${g.events.length} apparent safety breakthroughs were real (▲ real, ✕ false on the chart).` : '');
   $('#result').hidden = false;
 }
 
@@ -99,8 +120,8 @@ function viewport(g) {
   const visible = g.history.filter((h) => h.t >= start);
   const lows = visible.flatMap((h) => [h.center - g.halfWidth, ...h.deployed]);
   const highs = visible.flatMap((h) => [h.center + g.halfWidth, ...h.deployed]);
-  if (live) highs.push(g.labs[0].position);
-  else highs.push(...visible.map((h) => h.safety));
+  if (live) highs.push(g.labs[0].position, ...(advanced ? visible.flatMap((h) => [h.latent[0], h.internal[0]]) : []));
+  else highs.push(...visible.flatMap((h) => [h.safety, ...(advanced ? [...h.latent, ...h.internal] : [])]));
   const lo = Math.max(0, Math.min(...lows) - 2);
   const hi = Math.max(lo + 16, Math.max(...highs) + 2);
   return { start, end, lo, hi };
@@ -125,7 +146,7 @@ function drawChart() {
   const X = (t) => pad.left + ((t - start) / (end - start)) * (W - pad.left - pad.right);
   const Y = (v) => H - pad.bottom - ((v - lo) / (hi - lo)) * (H - pad.top - pad.bottom);
   const hist = [...g.history];
-  if (hist.at(-1).t < g.t) hist.push({ t: g.t, safety: g.safety, center: bandCenter(g), deployed: g.labs.map((l) => l.deployed) });
+  if (hist.at(-1).t < g.t) hist.push({ t: g.t, safety: g.safety, center: bandCenter(g), deployed: g.labs.map((l) => l.deployed), internal: g.labs.map((l) => l.internal), latent: g.labs.map((l) => l.position) });
 
   ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
   ctx.clearRect(0, 0, W, H);
@@ -177,13 +198,26 @@ function drawChart() {
   polyline(hist.map((h) => [X(h.t), Y(h.center - g.halfWidth)]), `rgba(${zone}, 0.35)`, 1);
   polyline(hist.map((h) => [X(h.t), Y(h.center + g.halfWidth)]), `rgba(${zone}, 0.35)`, 1);
 
-  if (!isLive(g)) polyline(hist.map((h) => [X(h.t), Y(h.safety)]), css('--truth'), 2, [6, 5]);
+  if (!isLive(g)) {
+    polyline(hist.map((h) => [X(h.t), Y(h.safety)]), css('--truth'), 2, [6, 5]);
+    ctx.fillStyle = css('--truth');
+    for (const e of g.events) ctx.fillText(e.real ? '▲' : '✕', X(e.t) - 4, pad.top + 8);
+  }
+
+  // Advanced: latent (dashed) and internal (thin) capability; yours while live, both revealed after.
+  if (advanced) {
+    for (const i of isLive(g) ? [0] : [1, 0]) {
+      const color = i ? css('--them') : css('--you');
+      polyline(hist.map((h) => [X(h.t), Y(h.latent[i])]), color, 1.5, [4, 3]);
+      polyline(hist.map((h) => [X(h.t), Y(h.internal[i])]), color, 1.5);
+    }
+  }
 
   for (const i of [1, 0]) polyline(hist.map((h) => [X(h.t), Y(h.deployed[i])]), i ? css('--them') : css('--you'), i ? 2.5 : 3);
 
   if (isLive(g)) {
     const me = g.labs[0];
-    const research = [[g.t, me.deployed], ...me.deployments.map((d) => [d.at, d.position])];
+    const research = [[g.t, me.deployed], ...me.deployments.map((d) => [d.at, me.externalFraction * me.internalFraction * d.position])];
     polyline(research.map(([t, v]) => [X(t), Y(v)]), css('--you'), 3, [1, 6]);
     for (const i of [1, 0]) {
       ctx.beginPath();
@@ -199,8 +233,14 @@ function drawChart() {
 
 // ---- input + loop ----
 
-function setHeld(v) {
-  held = v && game.phase === 'running';
+function press() {
+  if (game.phase !== 'running') return;
+  started = true;
+  held = !advanced;
+}
+
+function release() {
+  held = false;
 }
 
 const pedal = $('#accelerator');
@@ -208,26 +248,45 @@ pedal.addEventListener('pointerdown', (e) => {
   if (e.button !== 0 || pedal.disabled) return;
   e.preventDefault();
   pedal.setPointerCapture(e.pointerId);
-  setHeld(true);
+  press();
 });
-for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) pedal.addEventListener(ev, () => setHeld(false));
+for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) pedal.addEventListener(ev, release);
 pedal.addEventListener('contextmenu', (e) => e.preventDefault());
 addEventListener('keydown', (e) => {
   if (e.code !== 'Space') return;
   e.preventDefault();
-  if (!e.repeat) setHeld(true);
+  if (!e.repeat) press();
 });
-addEventListener('keyup', (e) => e.code === 'Space' && setHeld(false));
-addEventListener('blur', () => setHeld(false));
+addEventListener('keyup', (e) => e.code === 'Space' && release());
+addEventListener('blur', release);
 $('#again').addEventListener('click', () => start(newSeed()));
+
+// Keyboard: Q/A capability share, W/S internal, E/D external, in steps of 10%.
+const KEYS = {
+  KeyQ: ['#research', 10], KeyA: ['#research', -10], KeyW: ['#internal', 10],
+  KeyS: ['#internal', -10], KeyE: ['#external', 10], KeyD: ['#external', -10],
+};
+addEventListener('keydown', (e) => {
+  if (!advanced || !(e.code in KEYS) || e.target.matches('input')) return;
+  e.preventDefault();
+  const [sel, delta] = KEYS[e.code];
+  $(sel).value = Number($(sel).value) + delta;
+});
+
+const modeLink = $('#mode-link');
+const other = new URLSearchParams(params);
+if (advanced) other.delete('mode');
+else other.set('mode', 'advanced');
+modeLink.href = `?${other}`;
+modeLink.textContent = advanced ? 'Switch to classic mode' : 'Try advanced mode';
 
 let last = null;
 let pending = 0;
 function frame(now) {
-  if (last !== null && isLive(game)) {
+  if (last !== null && started && isLive(game)) {
     pending += Math.min(0.1, (now - last) / 1000);
     while (pending >= SIM.dt && isLive(game)) {
-      tick(game, held);
+      tick(game, advanced ? controls() : held);
       pending -= SIM.dt;
     }
     if (!isLive(game)) {

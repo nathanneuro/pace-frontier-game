@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  SIM, createGame, tick, isLive, bandCenter, biasPosterior, expectedMonthlyRisk,
-  monthlyRisk, hazardRate, frontierCapability,
+  SIM, createGame, tick, isLive, bandCenter, beliefWeights, expectedMonthlyRisk,
+  monthlyRisk, hazardRate, riskCapability, visibleRiskCapability, setControls, ADVANCED,
 } from '../src/web/sim.js';
 
 function play(g, policy) {
@@ -27,18 +27,18 @@ test('same seed and inputs are deterministic', () => {
   const policy = (g) => g.t % 10 < 4;
   const a = play(createGame(7), policy);
   const b = play(createGame(7), policy);
-  assert.deepEqual([a.t, a.hazard, a.bias, a.labs[0].cash], [b.t, b.hazard, b.bias, b.labs[0].cash]);
+  assert.deepEqual([a.t, a.hazard, a.labs[0].bias, a.labs[0].cash], [b.t, b.hazard, b.labs[0].bias, b.labs[0].cash]);
 });
 
 test('true frontier always lies inside the displayed danger zone', () => {
   for (let seed = 1; seed <= 200; seed++) {
     const g = createGame(seed, { halfWidth: 3 });
-    assert.ok(Math.abs(g.safety - bandCenter(g)) <= 3, `seed ${seed} bias ${g.bias}`);
+    assert.ok(Math.abs(g.safety - bandCenter(g)) <= 3, `seed ${seed} bias ${g.labs[0].bias}`);
   }
 });
 
 test('hidden bias covers the zone roughly uniformly', () => {
-  const biases = Array.from({ length: 4000 }, (_, i) => createGame(i + 1, { halfWidth: 3 }).bias);
+  const biases = Array.from({ length: 4000 }, (_, i) => createGame(i + 1, { halfWidth: 3 }).labs[0].bias);
   const mean = biases.reduce((a, b) => a + b, 0) / biases.length;
   assert.ok(Math.abs(mean) < 0.15, `mean ${mean}`);
   assert.ok(Math.min(...biases) < -2.9 && Math.max(...biases) > 2.9);
@@ -48,21 +48,21 @@ test('with halfWidth=0 the expected risk equals the true risk', () => {
   const g = createGame(3, { halfWidth: 0, gridPoints: 1 });
   while (isLive(g) && g.t < 40) {
     tick(g, g.t % 10 < 6);
-    const truth = monthlyRisk(hazardRate(frontierCapability(g), g.safety));
+    const truth = monthlyRisk(hazardRate(riskCapability(g), g.safety));
     assert.ok(Math.abs(expectedMonthlyRisk(g) - truth) < 1e-12);
   }
 });
 
 test('surviving exposure shifts the posterior toward a higher (safer) frontier', () => {
   const g = createGame(11, { halfWidth: 3 });
-  const prior = biasPosterior(g);
+  const prior = beliefWeights(g);
   assert.ok(prior.every((p) => Math.abs(p - 1 / prior.length) < 1e-12));
   // Sit in the upper part of the zone for a while without dying.
   g.threshold = Infinity;
   while (g.t < 60) tick(g, g.labs[0].position < bandCenter(g) + 2);
-  const post = biasPosterior(g);
+  const post = beliefWeights(g);
   assert.ok(Math.abs(post.reduce((a, b) => a + b, 0) - 1) < 1e-12);
-  const mean = post.reduce((s, p, k) => s + p * g.biasGrid[k], 0);
+  const mean = post.reduce((s, p, k) => s + p * g.belief.offsets[k], 0);
   // Larger bias = true frontier further below the zone center = more hazard, so it loses weight.
   assert.ok(mean < -0.1, `posterior mean bias ${mean}`);
 });
@@ -71,4 +71,106 @@ test('game ends by the settle deadline or catastrophe', () => {
   const g = play(createGame(5), () => false);
   assert.ok(g.t <= SIM.duration + 2 + 1e-6);
   assert.ok(['finished', 'crashed'].includes(g.phase));
+});
+
+// ---- advanced mode ----
+
+const all = { research: 1, internal: 1, external: 1 };
+const immortal = (g) => Object.assign(g, { threshold: Infinity });
+const advancedGame = (seed) => immortal(createGame(seed, { advanced: true }));
+const runTo = (g, t, input) => { while (isLive(g) && g.t < t) tick(g, typeof input === 'function' ? input(g) : input); return g; };
+
+test('advanced: deployment rolls back and restores instantly', () => {
+  const g = runTo(advancedGame(9), 20, all);
+  const { available } = g.labs[0];
+  assert.ok(available > 5);
+  setControls(g, 0, { research: 1, internal: 0.5, external: 0.4 });
+  assert.equal(g.labs[0].internal, 0.5 * available);
+  assert.equal(g.labs[0].deployed, 0.4 * 0.5 * available);
+  setControls(g, 0, all);
+  assert.equal(g.labs[0].deployed, available);
+});
+
+test('advanced: internal deployment speeds latent growth (RSI); external does not', () => {
+  const latent = (input) => runTo(advancedGame(4), 60, input).labs[0].position;
+  const base = latent(all);
+  assert.ok(base > latent({ ...all, internal: 0.2 }) + 5);
+  assert.equal(latent({ ...all, external: 0.2 }), base);
+});
+
+test('advanced: capability share of funding sets research speed', () => {
+  const latent = (research) => runTo(advancedGame(4), 40, { ...all, research }).labs[0].position;
+  assert.ok(latent(1) > latent(0.5) && latent(0.5) > latent(0.1));
+  assert.equal(latent(0), 0);
+});
+
+test('advanced: safety funding raises the shared frontier', () => {
+  const frontier = (research) => runTo(advancedGame(4), 40, { ...all, research }).safety;
+  assert.ok(frontier(0) > frontier(1) + 5);
+});
+
+test('advanced: external earns more than internal-only', () => {
+  const cash = (input) => runTo(advancedGame(4), 30, input).labs[0].cash;
+  assert.ok(cash(all) > cash({ ...all, external: 0.3 }));
+});
+
+test('advanced: risk weights external > internal-only > latent-only', () => {
+  const g = runTo(advancedGame(4), 40, all);
+  const risk = (internal, external) => {
+    setControls(g, 0, { research: 1, internal, external });
+    setControls(g, 1, { research: 1, internal: 0, external: 0 });
+    return riskCapability(g);
+  };
+  const external = risk(1, 1);
+  const internalOnly = risk(1, 0);
+  const latentOnly = risk(0, 0);
+  assert.ok(external > internalOnly && internalOnly > latentOnly && latentOnly > 0);
+  assert.ok(Math.abs(latentOnly - ADVANCED.latentRiskWeight * g.labs[0].position) < 1e-9);
+});
+
+test('advanced: player risk estimate sees only the rival external deployment', () => {
+  const g = runTo(advancedGame(4), 40, all);
+  setControls(g, 0, { research: 1, internal: 0, external: 0 });
+  setControls(g, 1, { research: 1, internal: 1, external: 0.2 });
+  assert.equal(visibleRiskCapability(g), Math.max(ADVANCED.latentRiskWeight * g.labs[0].position, g.labs[1].deployed));
+  assert.ok(visibleRiskCapability(g) < riskCapability(g));
+});
+
+test('advanced: frontier never decreases; truth wanders around and sometimes out of each zone', () => {
+  let outside = 0;
+  let samples = 0;
+  const kinds = new Set();
+  for (let seed = 1; seed <= 30; seed++) {
+    const g = advancedGame(seed);
+    let last = g.safety;
+    while (isLive(g)) {
+      tick(g, { research: 0.7, internal: 1, external: 1 });
+      assert.ok(g.safety >= last, `seed ${seed}: frontier fell at t=${g.t}`);
+      last = g.safety;
+      for (const lab of g.labs) {
+        samples++;
+        if (Math.abs(lab.bias) > g.halfWidth) outside++;
+      }
+    }
+    for (const e of g.events) kinds.add(e.real);
+    assert.notEqual(g.labs[0].bias, g.labs[1].bias);
+  }
+  const share = outside / samples;
+  assert.ok(share > 0.03 && share < 0.4, `share of time outside zone ${share}`);
+  assert.deepEqual([...kinds].sort(), [false, true]);
+});
+
+test('advanced: belief weights stay normalized and the run is deterministic', () => {
+  const a = runTo(advancedGame(12), 50, all);
+  const b = runTo(advancedGame(12), 50, all);
+  const w = beliefWeights(a);
+  assert.ok(Math.abs(w.reduce((x, y) => x + y, 0) - 1) < 1e-12);
+  assert.deepEqual(a.belief.offsets, b.belief.offsets);
+  assert.equal(expectedMonthlyRisk(a), expectedMonthlyRisk(b));
+});
+
+test('mode inputs are validated', () => {
+  assert.throws(() => setControls(createGame(1), 0, all), /advanced mode/);
+  assert.throws(() => tick(createGame(1), all), /boolean/);
+  assert.throws(() => tick(createGame(1, { advanced: true }), { ...all, research: 2 }), /\[0, 1\]/);
 });

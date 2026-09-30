@@ -15,9 +15,17 @@ uv run python -m http.server 8765 -d src/web
 # open http://localhost:8765/
 ```
 
-URL parameters: `?w=3` danger-zone half-width (`w=0` = original game), `?seed=123` fixed seed.
+URL parameters: `?w=3` danger-zone half-width (`w=0` = original game), `?seed=123` fixed seed,
+`?mode=advanced` advanced mode.
 
-Controls: hold Space (or click-and-hold the button) to accelerate.
+Each game waits for Start (click or Space).
+
+- **Classic**: hold Space (or click and hold) to accelerate.
+- **Advanced**: three sliders, capability-vs-safety funding, internal deployment, and external
+  deployment (Q/A, W/S, E/D). Latent, internal, and external capability are tracked separately.
+  Internal deployment drives self-improvement, and deployment rolls back instantly. Each lab has its
+  own noisy estimate of the frontier, and some apparent safety breakthroughs are false. See
+  `docs/original_mechanics.md`.
 
 ## Test
 
