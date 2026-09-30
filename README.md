@@ -30,3 +30,8 @@ Includes a regression that pins our sim (with `w=0`) to numbers produced by the 
 - `src/web/sim.js` — pure simulation (no DOM): mechanics, hidden bias, Bayesian expected-risk meter, bot.
 - `src/web/main.js` — canvas rendering, input, game loop.
 - `docs/original_mechanics.md` — reverse-engineered original mechanics and the design of the change.
+
+## License
+
+MIT (see `LICENSE`). This is an independent reimplementation; the original game design is by
+[Paradigm](https://www.paradigm.xyz/research/pace/), and this project is not affiliated with them.

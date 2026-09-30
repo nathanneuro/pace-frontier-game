@@ -1,7 +1,7 @@
 [project]
 name = "pace-frontier-game"
 version = "0.1.0"
-description = "Add your description here"
+description = "Replication of Paradigm's Pace with a hidden safety frontier"
 readme = "README.md"
 authors = [
     { name = "Nathan Helm-Burger", email = "nathan.helm.burger@gmail.com" }
