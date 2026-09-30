@@ -65,8 +65,11 @@ button { font: inherit; cursor: pointer; border: 1px solid var(--fg); background
 body[data-mode="classic"] .advanced-only, body[data-mode="advanced"] .classic-only { display: none; }
 header a { color: inherit; }
 .control { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; color: var(--muted); }
-.control input { flex: 1; accent-color: var(--you); }
-.control > span:first-child { width: 8ch; }
-.control > span:last-child { min-width: 38ch; }
+/* Neutral track: a filled segment would suggest the left label owns the left share. */
+.control input { flex: 1; min-width: 80px; appearance: none; -webkit-appearance: none; height: 4px; background: var(--muted); border-radius: 2px; }
+.control input::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: var(--you); border: 2px solid var(--fg); cursor: pointer; }
+.control input::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: var(--you); border: 2px solid var(--fg); cursor: pointer; }
+.control > span { width: 30ch; flex: none; white-space: nowrap; }
+.control > span:first-child { text-align: right; }
 .key.latent { border-top: 2px dashed var(--you); }
 .key.internal { border-top: 1.5px solid var(--you); }

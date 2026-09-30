@@ -73,9 +73,16 @@ function renderPanels() {
         : `${what} in danger zone`;
   if (advanced) {
     const me = g.labs[0];
-    $('#research-value').textContent = `${$('#research').value}% capability · ${100 - $('#research').value}% safety`;
-    $('#internal-value').textContent = `${$('#internal').value}% · ${me.internal.toFixed(1)} of ${me.available.toFixed(1)} ready (latent ${me.position.toFixed(1)})`;
-    $('#external-value').textContent = `${$('#external').value}% · ${me.deployed.toFixed(1)} of ${me.internal.toFixed(1)} internal`;
+    // Each slider: what 0% means on the left, what 100% means on the right, with shares and amounts.
+    const sides = (id, lo, hi, loAmount, hiAmount) => {
+      const v = Number($(`#${id}`).value);
+      const amount = (x) => (x === undefined ? '' : ` · ${x.toFixed(1)}`);
+      $(`#${id}-lo`).textContent = `${lo} (${100 - v}%)${amount(loAmount)}`;
+      $(`#${id}-hi`).textContent = `${hi} (${v}%)${amount(hiAmount)}`;
+    };
+    sides('research', 'Safety', 'Capabilities');
+    sides('internal', 'Held back', 'Run internally', me.available - me.internal, me.internal);
+    sides('external', 'Internal only', 'Sold externally', me.internal - me.deployed, me.deployed);
   }
 
   $('#pedal-text').textContent = !started ? 'Start' : !isLive(g) ? 'Game over' : advanced ? 'Running' : 'Accelerate';

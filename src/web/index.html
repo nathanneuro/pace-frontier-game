@@ -51,9 +51,9 @@
         <span class="advanced-only"><i class="key latent"></i>Latent</span>
         <span><i class="key truth"></i>True frontier (revealed after)</span>
       </div>
-      <label class="control advanced-only"><span>Research</span> <input id="research" type="range" min="0" max="100" step="1" value="70" data-default="70" /> <span id="research-value"></span></label>
-      <label class="control advanced-only"><span>Internal</span> <input id="internal" type="range" min="0" max="100" step="1" value="100" data-default="100" /> <span id="internal-value"></span></label>
-      <label class="control advanced-only"><span>External</span> <input id="external" type="range" min="0" max="100" step="1" value="100" data-default="100" /> <span id="external-value"></span></label>
+      <label class="control advanced-only"><span id="research-lo"></span><input id="research" type="range" min="0" max="100" step="1" value="70" data-default="70" aria-label="Research funding: safety to capabilities" /><span id="research-hi"></span></label>
+      <label class="control advanced-only"><span id="internal-lo"></span><input id="internal" type="range" min="0" max="100" step="1" value="100" data-default="100" aria-label="Ready capability: held back to run internally" /><span id="internal-hi"></span></label>
+      <label class="control advanced-only"><span id="external-lo"></span><input id="external" type="range" min="0" max="100" step="1" value="100" data-default="100" aria-label="Internal capability: internal only to sold externally" /><span id="external-hi"></span></label>
       <button id="accelerator" aria-pressed="false"><span id="pedal-text">Start</span> <small>[Space / click]</small></button>
     </footer>
   </main>
