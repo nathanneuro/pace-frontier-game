@@ -4,6 +4,8 @@ A replication of Paradigm's [Pace](https://www.paradigm.xyz/research/pace/) — 
 dynamics — with one change: the exact safety frontier is hidden. Players see a **danger zone** that
 contains it, but not where inside.
 
+**Play:** https://nathanneuro.github.io/pace-frontier-game/
+
 Single player vs. the computer. Static HTML + ES modules, no build step.
 
 ## Run
