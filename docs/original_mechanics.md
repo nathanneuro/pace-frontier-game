@@ -74,9 +74,9 @@ other things endogenous.
 **Controls** (no accelerator; the button only starts the game):
 
 1. *Research*: capability share `r` of research funding. Latent research speed approaches
-   `r · top`. Top speed = human researchers (1.5) + AI researchers `1.5 · exp((I − 38)/8)` (`TAKEOFF`
+   `r · top`. Top speed = human researchers (1.5) + AI researchers `1.5 · exp((I − 43)/8)` (`TAKEOFF`
    in `sim.js`), where `I` is current internally deployed capability. The AI share of research is
-   therefore logistic in `I`: ~1% at the start, 50% at human level (`I = 38`), >95% above `I ≈ 62`.
+   therefore logistic in `I`: ~1% at the start, 50% at human level (`I = 43`), >95% above `I ≈ 67`.
    Beyond that, speed grows exponentially in capability, i.e. hyperbolically in time: a finite-time
    takeoff, until returns to research diminish: past ×5,000 the multiplier bends away smoothly
    (`5000 + 15000 · (1 − exp(−(raw − 5000)/15000))`, same slope at the knee) and approaches ×20,000
@@ -87,10 +87,10 @@ other things endogenous.
    (`TAKEOFF.safetyLagRatio`, `safetyLagExponent`): AI shortens the safety cycle less than the
    capability cycle, so the gap widens with takeoff (1.15× at the start, 3.6× at ×100, 14× at
    ×20,000). AI speeds up its own capability research cycle: 3 months at the start, under a day past ×90. Human level was set to keep
-   the median time to 95% AI share at ~10.3 game months on default settings, including the starting
-   momentum: both labs begin as if they had already been researching at 70% capability funding for
-   longer than the research lag (`ADVANCED.startingResearch`), so they start at cruising speed with
-   capability and safety output landing from t = 0. Simple mode's pedal starts at 70% too. The advanced chart uses
+   the median time to 95% AI share at ~10.4 game months on default settings, including the starting
+   momentum: both labs begin as if they had been researching at 70% capability funding for the 4
+   months before the game (`ADVANCED.startingResearch`, `momentumMonths`), so they start at cruising
+   speed with output already landed (some deployed, some in the deployment queue) and the rest in flight. Simple mode's pedal starts at 70% too. The advanced chart uses
    a log scale (`log(1 + v)`) so takeoff doesn't flatten the early game.
    The remaining `1 − r` funds safety, which raises **your own** true frontier by
    `(1 − r) · 1.2 · m_s` per second (after the safety lag). Here `m_s = 1 + 0.75 · (multiplier − 1)`:
@@ -131,7 +131,8 @@ truth's distribution or the risk meter, so the truth is almost never outside it 
 with the bot means playing well into it. The bot's zone is not widened.
 
 The end screen compares cumulative catastrophe risk as the player's meter estimated it
-(`g.seenHazard`, the integral of the posterior-mean hazard rate) with the true risk each lab caused
+(`g.seenHazards[0]`, the integral of the posterior-mean hazard rate), the bot's own estimate
+(`g.seenHazards[1]`; it keeps no filter, so this averages over its prior on its offset), and the true risk each lab caused
 (`g.labHazards`) and the realized total. A lab sees
 its zone jump but can't tell which kind of jump it was. The parameters make `bᵢ` mean-zero with
 stationary standard deviation `w/2` (`zoneSigmas`), so the truth lies outside the zone some of the time (~5%)

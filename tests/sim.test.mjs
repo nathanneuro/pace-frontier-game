@@ -313,7 +313,7 @@ test('advanced: uncertainty grows once AI research outpaces humans', () => {
   const [m0, s0, w0] = at(0);
   const widen = ADVANCED.playerZoneWidening;
   assert.ok(m0 < 1.1 && s0 < 1.02 && Math.abs(w0 - widen * g.halfWidth) < 0.01);
-  const [m1, s1, w1, c1] = at(100);
+  const [m1, s1, w1, c1] = at(TAKEOFF.humanLevel + 76);
   assert.ok(Math.abs(s1 - (1 + ADVANCED.speedUncertainty * Math.log10(m1))) < 1e-12 && s1 > 2);
   assert.ok(Math.abs(w1 - widen * g.halfWidth * s1) < 1e-12);
   // The estimate's error scales too: center = truth * exp(bias * scale).
@@ -340,9 +340,9 @@ test('advanced: the player zone is wider than the bot zone; truth is almost neve
 test('cumulative risk is tracked per lab and as the player estimated it', () => {
   const g = runTo(advancedGame(4), 60, all);
   assert.ok(Math.abs(g.labHazards[0] + g.labHazards[1] - g.hazard) < 1e-9 * Math.max(1, g.hazard));
-  assert.ok(g.seenHazard > 0 && g.labHazards[0] > 0);
+  assert.ok(g.seenHazards.every((h) => h > 0) && g.labHazards[0] > 0);
   const c = play(createGame(5), () => true);
-  assert.ok(c.seenHazard > 0 && c.labHazards.every((h) => h === 0));
+  assert.ok(c.seenHazards.every((h) => h > 0) && c.labHazards.every((h) => h === 0));
 });
 
 test('advanced: both labs start with research momentum already landing', () => {

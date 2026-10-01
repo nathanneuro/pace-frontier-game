@@ -125,8 +125,9 @@ export const ADVANCED = Object.freeze({
   playerZoneWidening: 1.5,
   // Labs don't start from a standstill: before the game each has been researching at this
   // capability share of funding for longer than the research lag, so it starts at cruising speed with
-  // research already in flight (landing from t = 0). Simple mode's pedal starts here too.
+  // research already in flight and some already deployed. Simple mode's pedal starts here too.
   startingResearch: 0.7,
+  momentumMonths: 4,
   biasReversion: 0.1,
   realBreakthroughRate: 1 / 16,
   falseBreakthroughRate: 1 / 16,
@@ -236,7 +237,7 @@ export const TAKEOFF = Object.freeze({
   researchLagMonths: 3,
   safetyLagRatio: 1.15,
   safetyLagExponent: 0.75,
-  humanLevel: 38,
+  humanLevel: 43,
   scale: 8,
   diminishingReturnsAt: 5000,
   maxMultiplier: 20000,
@@ -450,9 +451,9 @@ export function createGame(seed = 1, {
       nextChange: SIM.safetyFlatUntil,
     },
     hazard: 0,
-    // Cumulative hazard per lab (advanced; classic: shared only) and as the player's meter estimated it.
+    // Cumulative hazard per lab (advanced; classic: shared only), and as each lab estimated it.
     labHazards: [0, 0],
-    seenHazard: 0,
+    seenHazards: [0, 0],
     threshold: -Math.log(u),
     halfWidth,
     advanced,
@@ -489,16 +490,26 @@ export function createGame(seed = 1, {
   return g;
 }
 
-// Research done before the game: at steady speed for the past research lag, so output lands
-// continuously from t = 0 (capability and safety pipelines filled as if the game had been running).
+// Research done before the game: steady research for momentumMonths before t = 0. Output produced
+// at tau lands at tau + lag: what landed before t = 0 is already latent (and deployed, or queued
+// for deployment); the rest is in flight. Safety likewise.
 function startMomentum(g, lab) {
   lab.speed = lab.research * topSpeed(g, lab);
-  const fill = (pipeline, lag, rate) => {
-    for (let at = SIM.dt; at <= lag + EPS; at += SIM.dt) pipeline.push({ at, amount: rate * SIM.dt });
-  };
   const m = researchMultiplier(g, lab);
-  fill(lab.capabilityPipeline, researchLag(m), lab.speed);
-  fill(lab.safetyPipeline, researchLag(m, true), (1 - lab.research) * ADVANCED.safetyResearchSpeed * safetyMultiplier(g, lab));
+  const [capLag, safetyLag] = [researchLag(m), researchLag(m, true)];
+  const capability = lab.speed * SIM.dt;
+  const safety = (1 - lab.research) * ADVANCED.safetyResearchSpeed * safetyMultiplier(g, lab) * SIM.dt;
+  for (let tau = SIM.dt - ADVANCED.momentumMonths * SECONDS_PER_MONTH; tau <= EPS; tau += SIM.dt) {
+    if (tau + capLag > EPS) lab.capabilityPipeline.push({ at: tau + capLag, amount: capability });
+    else {
+      lab.position += capability;
+      if (tau + capLag + DEPLOY_LAG > EPS) lab.deployments.push({ at: tau + capLag + DEPLOY_LAG, position: lab.position });
+      else lab.available = lab.position;
+    }
+    if (tau + safetyLag > EPS) lab.safetyPipeline.push({ at: tau + safetyLag, amount: safety });
+    else lab.ownSafety += safety;
+  }
+  applyFractions(lab);
 }
 
 // History snapshot (every 0.1 s). Hidden quantities are recorded for the post-game review only.
@@ -592,7 +603,7 @@ export function step(g) {
   const dt = SIM.dt;
   const rate0 = totalHazardRate(g);
   const belief0 = beliefRates(g);
-  const seen0 = expectedRate(g, belief0);
+  const seen0 = [expectedRate(g, belief0), botExpectedRate(g)];
   const labRates0 = g.advanced ? [0, 1].map((i) => labHazardRate(g, i)) : null;
   const profit0 = g.labs.map((lab, i) => profitRate(lab.deployed, g.labs[1 - i].deployed));
   g.t += dt;
@@ -613,7 +624,7 @@ export function step(g) {
   // Survival likelihood under each particle: P(survive dt | offset) = exp(-rate dt).
   const belief1 = beliefRates(g);
   belief1.forEach((r, k) => (g.belief.logWeights[k] -= ((belief0[k] + r) / 2) * dt));
-  g.seenHazard += ((seen0 + expectedRate(g, belief1)) / 2) * dt;
+  [expectedRate(g, belief1), botExpectedRate(g)].forEach((r, i) => (g.seenHazards[i] += ((seen0[i] + r) / 2) * dt));
   if (g.advanced) labRates0.forEach((r, i) => (g.labHazards[i] += ((r + labHazardRate(g, i)) / 2) * dt));
   if (g.advanced) resample(g);
   const years = dt * CLOCK.yearsPerSecond;
@@ -640,6 +651,24 @@ export function beliefWeights(g) {
 function expectedRate(g, rates) {
   const w = beliefWeights(g);
   return rates.reduce((sum, r, k) => sum + w[k] * r, 0);
+}
+
+// Hazard rate the bot would estimate for its own lab (classic: the shared risk). The bot keeps no
+// belief filter, so this averages over its prior on where the truth sits in its zone: the
+// offset's stationary distribution (advanced: normal in log units) or uniform across the zone (classic).
+const PRIOR = Array.from({ length: 25 }, (_, k) => -3 + k / 4);
+function botExpectedRate(g) {
+  if (g.advanced) {
+    const lab = g.labs[1];
+    const c = labRisk(g, lab);
+    const center = bandCenter(g, 1);
+    const sd = g.proc.spread * uncertaintyScale(g, 1);
+    const w = PRIOR.map((z) => Math.exp(-z * z / 2));
+    const total = w.reduce((a, b) => a + b, 0);
+    return PRIOR.reduce((sum, z, k) => sum + (w[k] / total) * hazardRate(c, shiftBy(g, center, -z * sd)), 0);
+  }
+  const c = riskCapability(g);
+  return PRIOR.reduce((sum, z) => sum + hazardRate(c, bandCenter(g, 1) - (z / 3) * g.halfWidth), 0) / PRIOR.length;
 }
 
 // Catastrophe risk over the next month as the player can compute it: averaged over its belief.

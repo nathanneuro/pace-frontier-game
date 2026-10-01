@@ -147,7 +147,7 @@ function showResult() {
     ] : [['Deployed capability', cap(me.deployed), cap(bot.deployed)]]),
     ['True safety frontier', ...(advanced ? [0, 1].map((i) => cap(frontier(g, i))) : [cap(g.safety), ''])],
     // Cumulative catastrophe probability over the game: what the meter added up to vs. the truth.
-    ['Estimated risk (your meter)', pctText(cumulativeRisk(g, g.seenHazard)), advanced ? 'unseen' : ''],
+    ['Estimated risk (own meter)', ...g.seenHazards.map((h) => pctText(cumulativeRisk(g, h)))],
     ...(advanced
       ? [['True risk caused', ...g.labHazards.map((h) => pctText(cumulativeRisk(g, h)))]]
       : [['True risk (shared)', pctText(cumulativeRisk(g)), '']]),
@@ -164,7 +164,7 @@ function showResult() {
   }
   table.rows[2].classList.add('payout');
   $('#result-risk').textContent = `Total true catastrophe risk this game: ${pctText(cumulativeRisk(g))}.`
-    + (advanced ? ' Your meter only estimates your own lab; the competitor\'s risk adds to it unseen.' : '');
+    + (advanced ? ' Each lab\'s meter estimated only its own risk; the true total is both combined.' : '');
   const b = g.labs[0].bias;
   const real = g.events.filter((e) => e.real).length;
   const off = frontier(g, 0) / bandCenter(g, 0) - 1; // advanced: true frontier relative to the zone center
