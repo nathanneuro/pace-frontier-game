@@ -84,11 +84,13 @@ Deployment fractions change instantly in both directions: rolling back and resto
 drift process at 25% speed, standing in for public safety research. Neither lab ever sees the
 other's frontier or estimate.
 
-**Risk**: each lab's risk capability is `external + 0.6·(internal − external) + 0.25·(latent − internal)`,
-put through the original hazard curve against *its own* frontier. Either lab can cause catastrophe,
-so the two rates add. The weights are `ADVANCED.internalRiskWeight` and `latentRiskWeight`.
-Without them, undeployed capability would be free and riskless, and the sliders would never
-involve a tradeoff.
+**Risk**: each lab's risk capability is
+`max(internal, external + min(1, external)) + 0.25·(latent − internal)`. It is put through the
+original hazard curve against *its own* frontier. Internal deployment carries full risk. External
+deployment meets a catastrophe threshold 1 lower (`ADVANCED.externalThresholdGap`), phased in over
+its first unit so a sliver of external deployment isn't a cliff. Without the latent weight
+(`latentRiskWeight`), undeployed capability would be free and riskless. Either lab can cause
+catastrophe, so the two rates add.
 
 **Per-lab estimates**: every `Sᵢ` only increases. Lab `i` sees only its own zone
 `Sᵢ + bᵢ ± w`. Each offset `bᵢ` is an Ornstein–Uhlenbeck process (reversion 0.1/s) plus

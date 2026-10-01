@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   SIM, createGame, tick, isLive, bandCenter, beliefWeights, expectedMonthlyRisk,
-  monthlyRisk, hazardRate, riskCapability, playerRiskCapability, frontier, labHazardRate, totalHazardRate, setControls, ADVANCED, mixSeed,
+  monthlyRisk, hazardRate, riskCapability, playerRiskCapability, labRisk, frontier, labHazardRate, totalHazardRate, setControls, ADVANCED, mixSeed,
 } from '../src/web/sim.js';
 
 function play(g, policy) {
@@ -118,18 +118,21 @@ test('advanced: external earns more than internal-only', () => {
   assert.ok(cash(all) > cash({ ...all, external: 0.3 }));
 });
 
-test('advanced: risk weights external > internal-only > latent-only', () => {
+test('advanced: internal counts fully, external slightly more, latent-only a fraction', () => {
   const g = runTo(advancedGame(4), 40, all);
+  const lab = g.labs[0];
   const risk = (internal, external) => {
     setControls(g, 0, { research: 1, internal, external });
-    setControls(g, 1, { research: 1, internal: 0, external: 0 });
-    return riskCapability(g);
+    return labRisk(g, lab);
   };
-  const external = risk(1, 1);
-  const internalOnly = risk(1, 0);
-  const latentOnly = risk(0, 0);
-  assert.ok(external > internalOnly && internalOnly > latentOnly && latentOnly > 0);
-  assert.ok(Math.abs(latentOnly - ADVANCED.latentRiskWeight * g.labs[0].position) < 1e-9);
+  const latentOnly = ADVANCED.latentRiskWeight * (lab.position - lab.available);
+  assert.ok(Math.abs(risk(1, 0) - (lab.available + latentOnly)) < 1e-9);
+  assert.ok(Math.abs(risk(1, 1) - (lab.available + ADVANCED.externalThresholdGap + latentOnly)) < 1e-9);
+  assert.ok(Math.abs(risk(0, 0) - ADVANCED.latentRiskWeight * lab.position) < 1e-9);
+  // The external gap phases in, so a sliver of external deployment adds only a sliver of risk.
+  const sliver = 0.1 / lab.available;
+  assert.ok(Math.abs(risk(1, sliver) - risk(1, 0)) < 1e-9);
+  assert.ok(Math.abs(risk(0.5, 1) - risk(0.5, 0) - ADVANCED.externalThresholdGap) < 1e-9);
 });
 
 test('advanced: each lab risks catastrophe against its own frontier; player estimates only its own', () => {

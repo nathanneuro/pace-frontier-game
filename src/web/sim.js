@@ -92,8 +92,10 @@ export const BOT = Object.freeze({
 // tiers of capability: latent (research) >= internal (run inside the lab; drives self-improvement)
 // >= external (sold to customers; earns profit; the only tier the rival can see).
 export const ADVANCED = Object.freeze({
-  // Catastrophe-risk weight of internal-only and latent-only capability, relative to external (1).
-  internalRiskWeight: 0.6,
+  // Internal deployment carries full risk. External deployment meets a slightly lower catastrophe
+  // threshold: it counts as this much more capability (phased in over its first unit).
+  // Latent-only capability carries a fraction of the risk.
+  externalThresholdGap: 1,
   latentRiskWeight: 0.25,
   // Each lab has its own true safety frontier: a shared background drift (the original's frontier
   // process, scaled down) plus that lab's own safety research and real breakthroughs.
@@ -241,10 +243,11 @@ export const frontier = (g, i = 0) => g.safety + g.labs[i].ownSafety;
 // Lab i's estimated frontier (center of its danger zone).
 export const bandCenter = (g, i = 0) => frontier(g, i) + g.labs[i].bias;
 
-// Capability that generates catastrophe risk for one lab: external counts fully, internal-only and
-// latent-only capability at their weights. In classic mode this is just deployed capability.
-const labRisk = (g, l) => l.deployed
-  + g.internalRiskWeight * (l.internal - l.deployed)
+// Capability that generates catastrophe risk for one lab: internal deployment counts fully,
+// external deployment as slightly more (a lower threshold), plus weighted latent-only capability.
+// In classic mode this is just deployed capability.
+export const labRisk = (g, l) =>
+  Math.max(l.internal, l.deployed + Math.min(g.externalThresholdGap, l.deployed))
   + g.latentRiskWeight * Math.max(0, l.position - l.internal);
 
 export const riskCapability = (g) => Math.max(0, ...g.labs.map((l) => labRisk(g, l)));
@@ -302,7 +305,7 @@ export function createGame(seed = 1, {
   plateaus = true,
   advanced = false,
   bot = BOT,
-  internalRiskWeight = advanced ? ADVANCED.internalRiskWeight : 1,
+  externalThresholdGap = advanced ? ADVANCED.externalThresholdGap : 0,
   latentRiskWeight = advanced ? ADVANCED.latentRiskWeight : 0,
 } = {}) {
   let n = seed >>> 0;
@@ -334,7 +337,7 @@ export function createGame(seed = 1, {
     halfWidth,
     advanced,
     bot,
-    internalRiskWeight,
+    externalThresholdGap,
     latentRiskWeight,
     proc,
     worldRng: { random: (seed ^ 0x61c88647) >>> 0 },
@@ -533,7 +536,7 @@ export function botPolicy(g, idx = 1) {
   const hysteresis = pushing ? 0 : 0.3;
   if (!g.advanced) return { held: me.position + stoppingDistance(g, me) < target - hysteresis };
   const { internalHeadroom, latentHeadroom } = g.bot === 'original' ? BOT : g.bot;
-  const riskMargin = g.internalRiskWeight * internalHeadroom + g.latentRiskWeight * (latentHeadroom - internalHeadroom);
+  const riskMargin = Math.max(internalHeadroom, g.externalThresholdGap) + g.latentRiskWeight * (latentHeadroom - internalHeadroom);
   const externalTarget = target - (g.bot === 'original' ? 0 : riskMargin);
   const research = me.position + stoppingDistance(g, me) < externalTarget + latentHeadroom - hysteresis ? 1 : 0;
   const internal = Math.max(0, Math.min(me.available, externalTarget + internalHeadroom));
