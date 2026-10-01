@@ -64,7 +64,9 @@ button { font: inherit; cursor: pointer; border: 1px solid var(--fg); background
 #accelerator:disabled { background: var(--future); color: var(--muted); border-color: var(--border); cursor: default; }
 #accelerator small { opacity: 0.6; margin-left: 8px; }
 
-body[data-mode="classic"] .advanced-only, body[data-mode="advanced"] .classic-only { display: none; }
+body:not([data-mode="advanced"]) .advanced-only, body:not([data-mode="original"]) .original-only,
+body:not([data-mode="simple"]) .simple-only { display: none; }
+body[data-mode="original"] .dynamics-only { display: none; }
 header a { color: inherit; }
 .control { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; color: var(--muted); }
 /* Neutral track: a filled segment would suggest the left label owns the left share. */

@@ -80,8 +80,8 @@ export const UNCERTAINTY = Object.freeze({
 // Tuned with src/tools/eval_bot.mjs: vs. careful players it roughly ties while adding ~no risk;
 // vs. players deep in their zone it keeps up partially but won't follow past 0.6.
 export const BOT = Object.freeze({
-  safePosition: 0.1,
-  racePosition: 0.6,
+  safePosition: 0,
+  racePosition: 0.5,
   lead: 1.5,
   // Advanced mode: internal and latent capability kept above external deployment.
   internalHeadroom: 1.5,
@@ -105,16 +105,25 @@ export const ADVANCED = Object.freeze({
   safetyResearchSpeed: 1.2,
   // AI researchers are this efficient at safety research relative to capability research.
   safetyAiEfficiency: 0.75,
-  // Each lab's estimate of its frontier is truth + a hidden offset b. b mean-reverts
+  // Uncertainty is relative: the more capable the systems, the less precisely anyone knows where the
+  // frontier is. Each lab's estimate of its frontier is truth * exp(b) for a hidden log-offset b, and
+  // its danger zone spans estimate * exp(+-zoneHalfWidth) (default: -33% to +49%). b mean-reverts
   // (Ornstein-Uhlenbeck) and is kicked up by false breakthroughs. Real breakthroughs raise the lab's
-  // true frontier (and so its estimate). A lab sees the jump but not whether it was real.
+  // true frontier (and so its estimate). Breakthroughs are a fraction of the current frontier.
+  // A lab sees the jump but not whether it was real.
+  zoneHalfWidth: 0.4,
+  // The offset's stationary standard deviation is zoneHalfWidth / zoneSigmas.
+  zoneSigmas: 2,
   biasReversion: 0.1,
   realBreakthroughRate: 1 / 16,
   falseBreakthroughRate: 1 / 16,
-  breakthroughMin: 1,
-  breakthroughMax: 3,
+  breakthroughMin: 0.05,
+  breakthroughMax: 0.2,
   // Particles in the player's belief over its own offset.
   particles: 256,
+  // Simple mode's pedal: holding it moves the hidden funding split from all-safety to
+  // all-capability over this many game seconds; releasing moves it back at the same rate.
+  pedalSeconds: 1,
 });
 
 export const SECONDS_PER_MONTH = 1 / (12 * CLOCK.yearsPerSecond);
@@ -206,18 +215,22 @@ export const TAKEOFF = Object.freeze({
   // Research output lands after a lag: researchLagMonths divided by the lab's current AI research
   // multiplier (AI speeds its own research cycle: 3 months at the start, under a day past ~x90).
   // Research *power* is current, so rolling back internal deployment cuts it immediately.
-  // Safety research takes safetyLagRatio times longer to pay off.
+  // Safety research takes safetyLagRatio times longer to pay off, and AI shortens its lag less:
+  // only by multiplier^safetyLagExponent, so the gap widens as AI improves (x1: 1.15x the
+  // capability lag; x100: 3.6x; x20000: 14x).
   researchLagMonths: 3,
   safetyLagRatio: 1.15,
+  safetyLagExponent: 0.75,
   humanLevel: 24,
   scale: 8,
   maxMultiplier: 20000,
 });
 
 // Research lag in game seconds for a lab whose AI currently multiplies research speed by
-// `multiplier`, for capability research (ratio 1) or safety research.
-export function researchLag(multiplier, ratio = 1) {
-  return (ratio * TAKEOFF.researchLagMonths) / 12 / CLOCK.yearsPerSecond / multiplier;
+// `multiplier`, for capability research or (safety = true) safety research.
+export function researchLag(multiplier, safety = false) {
+  const months = TAKEOFF.researchLagMonths / 12 / CLOCK.yearsPerSecond;
+  return safety ? (TAKEOFF.safetyLagRatio * months) / multiplier ** TAKEOFF.safetyLagExponent : months / multiplier;
 }
 
 // Research output in flight: { at, amount } entries. Lags shrink as AI improves, so later output
@@ -304,8 +317,14 @@ export function isLive(g) {
 // Lab i's true safety frontier. Classic: one shared frontier (ownSafety stays 0).
 export const frontier = (g, i = 0) => g.safety + g.labs[i].ownSafety;
 
+// Frontier implied by an estimate (zone center) and an offset. Classic: additive. Advanced: log-offset.
+const shiftBy = (g, value, offset) => (g.advanced ? value * Math.exp(offset) : value + offset);
+
 // Lab i's estimated frontier (center of its danger zone).
-export const bandCenter = (g, i = 0) => frontier(g, i) + g.labs[i].bias;
+export const bandCenter = (g, i = 0) => shiftBy(g, frontier(g, i), g.labs[i].bias);
+
+// Point at `position` across the danger zone around `center`: 0 = lower edge, 1 = upper edge.
+export const zonePoint = (g, center, position) => shiftBy(g, center, g.halfWidth * (2 * position - 1));
 
 // Capability that generates catastrophe risk for one lab: internal deployment counts fully,
 // external deployment as slightly more (a lower threshold), plus weighted latent-only capability.
@@ -335,16 +354,19 @@ function normal(rng) {
   return Math.sqrt(-2 * Math.log(1 - random(rng))) * Math.cos(2 * Math.PI * random(rng));
 }
 
-// Offset process for advanced mode, scaled so the offset's stationary spread is halfWidth / 1.5
-// (the zone is roughly a 1.5-sigma band) and its stationary mean is zero: false breakthroughs push
-// b up on average, so between them b drifts down (real progress the estimate hasn't noticed).
+// Offset process for advanced mode (log units), scaled so the offset's stationary spread is
+// halfWidth / 1.5 (the zone is roughly a 1.5-sigma band) and its stationary mean is zero: false
+// breakthroughs push b up on average, so between them b drifts down (real progress the estimate
+// hasn't noticed). A false breakthrough of relative size s moves b by log(1 + s).
 function offsetProcess(halfWidth) {
   const A = ADVANCED;
   const falseRate = halfWidth > 0 ? A.falseBreakthroughRate : 0;
-  const meanJump = (A.breakthroughMin + A.breakthroughMax) / 2;
-  const meanSqJump = (A.breakthroughMin ** 2 + A.breakthroughMin * A.breakthroughMax + A.breakthroughMax ** 2) / 3;
+  const n = 1000;
+  const jumps = Array.from({ length: n }, (_, k) => Math.log1p(A.breakthroughMin + ((k + 0.5) / n) * (A.breakthroughMax - A.breakthroughMin)));
+  const meanJump = jumps.reduce((a, j) => a + j, 0) / n;
+  const meanSqJump = jumps.reduce((a, j) => a + j * j, 0) / n;
   const jumpVariance = (falseRate * meanSqJump) / (2 * A.biasReversion);
-  const spread = halfWidth / 1.5;
+  const spread = halfWidth / A.zoneSigmas;
   return {
     falseRate,
     mean: (-falseRate * meanJump) / A.biasReversion,
@@ -363,11 +385,12 @@ function driftOffset(b, proc, dt, rng) {
 // catastrophe thresholds near 9 instead of Exp(1)). Spread user-chosen seeds over 32 bits first.
 export const mixSeed = (n) => Math.imul(n >>> 0, 2654435761) >>> 0;
 
+// halfWidth: zone half-width; capability units in classic, log units in advanced.
 export function createGame(seed = 1, {
-  halfWidth = UNCERTAINTY.halfWidth,
+  advanced = false,
+  halfWidth = advanced ? ADVANCED.zoneHalfWidth : UNCERTAINTY.halfWidth,
   gridPoints = UNCERTAINTY.gridPoints,
   plateaus = true,
-  advanced = false,
   bot = BOT,
   externalThresholdGap = advanced ? ADVANCED.externalThresholdGap : 0,
   latentRiskWeight = advanced ? ADVANCED.latentRiskWeight : 0,
@@ -419,7 +442,7 @@ export function createGame(seed = 1, {
     // research = capability share of research funding (advanced). Classic: all fractions are 1.
     labs: [0, 1].map(() => ({
       position: 0, available: 0, internalFraction: 1, externalFraction: 1, internal: 0, deployed: 0, deployments: [],
-      research: 1, safetyFunding: 0, ownSafety: 0, capabilityPipeline: [], safetyPipeline: [], accumulated: 0, bias: startBias(), speed: 0, held: false, cash: 0, profit: PROFIT.baseProfit,
+      research: advanced ? 0 : 1, safetyFunding: 0, ownSafety: 0, capabilityPipeline: [], safetyPipeline: [], accumulated: 0, bias: startBias(), speed: 0, held: false, cash: 0, profit: PROFIT.baseProfit,
     })),
     history: [],
   };
@@ -464,7 +487,7 @@ function finish(g, reason) {
 function beliefRates(g) {
   const c = playerRiskCapability(g);
   const center = bandCenter(g, 0);
-  return g.belief.offsets.map((b) => hazardRate(c, center - b));
+  return g.belief.offsets.map((b) => hazardRate(c, shiftBy(g, center, -b)));
 }
 
 // Advanced-mode world dynamics for one tick, per lab: own safety research, real and false
@@ -473,10 +496,10 @@ function advanceWorld(g, dt) {
   const A = ADVANCED;
   const rng = g.worldRng;
   const jump = () => uniform(rng, A.breakthroughMin, A.breakthroughMax);
-  let seen = 0; // jump in the player's estimate
+  let seen = 0; // log of the jump factor in the player's estimate
   g.labs.forEach((lab, i) => {
     if (g.phase === 'running') {
-      const lag = researchLag(researchMultiplier(g, lab), TAKEOFF.safetyLagRatio);
+      const lag = researchLag(researchMultiplier(g, lab), true);
       lab.safetyPipeline.push({ at: g.t + lag, amount: (1 - lab.research) * A.safetyResearchSpeed * safetyMultiplier(g, lab) * dt });
     }
     lab.ownSafety += land(lab.safetyPipeline, g.t);
@@ -484,10 +507,10 @@ function advanceWorld(g, dt) {
     for (const real of [true, false]) {
       if (!(random(rng) < (real ? A.realBreakthroughRate : g.proc.falseRate) * dt)) continue;
       const size = jump();
-      if (real) lab.ownSafety += size;
-      else lab.bias += size;
+      if (real) lab.ownSafety += size * frontier(g, i);
+      else lab.bias += Math.log1p(size);
       if (i === 0) {
-        seen += size;
+        seen += Math.log1p(size);
         g.events.push({ t: g.t, size, real });
       }
     }
@@ -593,7 +616,7 @@ function botTarget(g, idx) {
   const me = g.labs[idx];
   const rival = g.labs[1 - idx];
   const behind = me.deployed < rival.deployed;
-  const at = (position) => bandCenter(g, idx) + g.halfWidth * (2 * position - 1);
+  const at = (position) => zonePoint(g, bandCenter(g, idx), position);
   if (g.bot === 'original') return Math.max(at(0.25), behind ? rival.deployed + 1.5 : 0);
   const safe = at(g.bot.safePosition);
   return behind ? Math.max(safe, Math.min(rival.deployed + g.bot.lead, at(g.bot.racePosition))) : safe;
@@ -622,14 +645,24 @@ export function botPolicy(g, idx = 1) {
   };
 }
 
+// Simple mode: the advanced dynamics driven by one pedal. Everything is deployed internally and
+// externally; holding the pedal ramps the capability share of funding up, releasing ramps it down.
+export function pedalControls(g, held, idx = 0) {
+  if (typeof held !== 'boolean') throw Error(`Pedal input must be a boolean, got ${held}.`);
+  const step = SIM.dt / ADVANCED.pedalSeconds;
+  const research = Math.min(1, Math.max(0, g.labs[idx].research + (held ? step : -step)));
+  return { research, internal: 1, external: 1 };
+}
+
 // Advance one tick with player input on lab 0 and the bot on lab 1.
-// Classic input: boolean (accelerate held). Advanced input: { research, internal, external }.
+// Classic input: boolean (accelerate held). Advanced input: { research, internal, external },
+// or a boolean pedal (simple mode, see pedalControls).
 export function tick(g, input) {
   if (!isLive(g)) return;
   if (g.phase === 'running') {
     const bot = botPolicy(g, 1);
     if (g.advanced) {
-      setControls(g, 0, input);
+      setControls(g, 0, typeof input === 'boolean' ? pedalControls(g, input) : input);
       setControls(g, 1, bot);
     } else {
       if (typeof input !== 'boolean') throw Error(`Classic input must be a boolean, got ${input}.`);

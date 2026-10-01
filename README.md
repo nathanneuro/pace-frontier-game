@@ -15,15 +15,20 @@ uv run python -m http.server 8765 -d src/web
 # open http://localhost:8765/
 ```
 
-URL parameters: `?w=3` danger-zone half-width (`w=0` = original game), `?seed=123` fixed seed,
-`?mode=advanced` advanced mode.
+URL parameters: `?mode=advanced` / `?mode=original` (default: simple), `?seed=123` fixed seed,
+`?w=` danger-zone half-width (log units in simple/advanced, default 0.4 ≈ −33%/+49%; capability
+units in original, default 3; `w=0` shows the exact frontier).
 
 Each game waits for Start (click or Space).
 After a game, close the results to explore the run: scroll to zoom, drag to pan, double-click to
 reset. Hover to compare what you saw (your zone, expected risk) with the truth (both labs' frontiers,
 zones, hidden capability, true risk per lab). A strip along the bottom shows where true risk built up.
 
-- **Classic**: hold Space (or click and hold) to accelerate.
+- **Simple** (default): the advanced dynamics below with one pedal. Hold Space (or click and hold)
+  to shift research funding from safety to capabilities (full range in ~1 s); release to shift it
+  back at the same rate. Everything is deployed internally and externally as soon as it's ready.
+- **Original** (`?mode=original`): a faithful replica of Paradigm's game (hold to accelerate), plus
+  the hidden frontier.
 - **Advanced**: three sliders, capability-vs-safety funding, internal deployment, and external
   deployment (Q/A, W/S, E/D). Latent, internal, and external capability are tracked separately.
   Internal deployment drives self-improvement, and deployment rolls back instantly. Each lab has its

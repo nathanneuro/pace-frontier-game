@@ -59,7 +59,12 @@ Design choices worth revisiting:
 - In multiplayer the server must withhold `S` and `b` from clients (the original already filters
   snapshots server-side). In this client-only build a player could read them from devtools.
 
-## Advanced mode (`?mode=advanced`)
+## Advanced dynamics (simple mode, the default, and `?mode=advanced`)
+
+Simple mode runs the advanced dynamics below with one pedal instead of three sliders: internal and
+external deployment are fixed at 100%, and holding the pedal moves the funding split `r` from 0
+(all safety) to 1 at 1/s (`ADVANCED.pedalSeconds`); releasing moves it back at the same rate. The
+faithful replica of the original game is `?mode=original`.
 
 Motivation: the paper assumes capability only rises (`a ∈ [0, 1]`). In reality a lab can stop
 running a model at any time, internally or externally. OpenAI did exactly this with its Internal
@@ -76,8 +81,10 @@ other things endogenous.
    takeoff. The ×20,000 cap on research speed exists only to keep the numbers finite.
    **Research lag:** research *power* is current, so rolling back internal deployment cuts it
    immediately. Research *output* lands after `3 months / multiplier` for capability (into latent,
-   then the 2-week deployment lag) and 15% longer for safety (`TAKEOFF.safetyLagRatio`). AI speeds up
-   its own research cycle: 3 months at the start, under a day past ×90. Human level was set to keep
+   then the 2-week deployment lag). Safety output lands after `1.15 · 3 months / multiplier^0.75`
+   (`TAKEOFF.safetyLagRatio`, `safetyLagExponent`): AI shortens the safety cycle less than the
+   capability cycle, so the gap widens with takeoff (1.15× at the start, 3.6× at ×100, 14× at
+   ×20,000). AI speeds up its own capability research cycle: 3 months at the start, under a day past ×90. Human level was set to keep
    the median time to 95% AI share at ~10.3 game months on default settings. The advanced chart uses
    a log scale (`log(1 + v)`) so takeoff doesn't flatten the early game.
    The remaining `1 − r` funds safety, which raises **your own** true frontier by
@@ -103,13 +110,15 @@ its first unit so a sliver of external deployment isn't a cliff. Without the lat
 (`latentRiskWeight`), undeployed capability would be free and riskless. Either lab can cause
 catastrophe, so the two rates add.
 
-**Per-lab estimates**: every `Sᵢ` only increases. Lab `i` sees only its own zone
-`Sᵢ + bᵢ ± w`. Each offset `bᵢ` is an Ornstein–Uhlenbeck process (reversion 0.1/s) plus
-lab-specific *false breakthroughs*, which kick `bᵢ` up by U(1, 3) without moving `S`. *Real
-breakthroughs* (same size distribution and rate) raise that lab's `Sᵢ`, and with it its zone. A lab sees
+**Per-lab estimates**: every `Sᵢ` only increases. Uncertainty is relative, so it grows with the
+frontier: lab `i` sees only its own zone, centered on `Sᵢ · exp(bᵢ)` and spanning `center · exp(±w)`
+(`w = ADVANCED.zoneHalfWidth = 0.4`, i.e. −33% to +49%). Each log-offset `bᵢ` is an
+Ornstein–Uhlenbeck process (reversion 0.1/s) plus lab-specific *false breakthroughs*, which raise the
+estimate by a factor `1 + s`, `s ~ U(0.05, 0.2)`, without moving `S`. *Real breakthroughs* (same
+size distribution and rate) raise that lab's `Sᵢ` by `s · Sᵢ`, and with it its zone by the same factor. A lab sees
 its zone jump but can't tell which kind of jump it was. The parameters make `bᵢ` mean-zero with
-stationary standard deviation `w/1.5`, so the truth lies outside the zone some of the time
-(~10–20% in tests).
+stationary standard deviation `w/2` (`zoneSigmas`), so the truth lies outside the zone some of the time (~5%)
+.
 
 **Risk meter**: a 256-particle filter over the player's own offset. It uses the same OU + jump
 model, reweights particles by survival `exp(−∫rate)`, and resamples when ESS < N/2. It
@@ -118,7 +127,7 @@ cancels out of the posterior, but it does add to the true risk. The meter is lab
 for that reason.
 
 **Bot** (both modes; `BOT` in `sim.js`): it sees only its own zone and your external deployment. It
-sits 10% of the way up its zone. When behind you, it chases to 1.5 past you, but never beyond 60% of
+sits at the bottom of its zone. When behind you, it chases to 1.5 past you, but never beyond 50% of
 the way up its zone. In advanced mode it funds capability until its latent stopping point reaches
 target + 3 and otherwise funds safety 100%. It keeps internal/latent headroom (1.5/3) above its
 external deployment and lowers external so its risk-weighted capability stays at the target.

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   SIM, createGame, tick, isLive, bandCenter, beliefWeights, expectedMonthlyRisk,
-  monthlyRisk, hazardRate, riskCapability, playerRiskCapability, labRisk, aiResearchShare, TAKEOFF, stoppingDistance, researchMultiplier, safetyMultiplier, researchLag, pendingResearch, committedLatent, CLOCK, frontier, labHazardRate, totalHazardRate, setControls, ADVANCED, mixSeed,
+  monthlyRisk, hazardRate, riskCapability, playerRiskCapability, labRisk, aiResearchShare, TAKEOFF, stoppingDistance, researchMultiplier, safetyMultiplier, researchLag, pendingResearch, committedLatent, CLOCK, frontier, labHazardRate, totalHazardRate, setControls, ADVANCED, mixSeed, zonePoint, step,
 } from '../src/web/sim.js';
 
 function play(g, policy) {
@@ -230,11 +230,14 @@ test('advanced: AI boosts safety research, but less than capability research', (
 });
 
 
-test('advanced: research output lands after 3 months / AI multiplier; safety 15% later', () => {
+test('advanced: research output lands after 3 months / AI multiplier; safety later, increasingly so', () => {
   const months = (s) => s * CLOCK.yearsPerSecond * 12;
   assert.ok(Math.abs(months(researchLag(1)) - 3) < 1e-9);
   assert.ok(Math.abs(months(researchLag(2)) - 1.5) < 1e-9);
-  assert.ok(Math.abs(researchLag(3, TAKEOFF.safetyLagRatio) / researchLag(3) - 1.15) < 1e-12);
+  assert.ok(Math.abs(researchLag(1, true) / researchLag(1) - 1.15) < 1e-12);
+  const ratios = [1, 10, 100, 20000].map((m) => researchLag(m, true) / researchLag(m));
+  assert.ok(ratios.every((r, k) => !k || r > ratios[k - 1]), `ratios ${ratios}`);
+  assert.ok(ratios.at(-1) > 10, `ratio at x20000 ${ratios.at(-1)}`);
   assert.ok(months(researchLag(100)) * 30.4 < 1, 'under a day at x100');
   // Nothing lands for the first ~3 months of research.
   const g = advancedGame(4);
@@ -259,4 +262,31 @@ test('advanced: rolling back internal deployment cuts research power immediately
   const before = researchMultiplier(g, g.labs[0]);
   setControls(g, 0, { ...all, internal: 0.2 });
   assert.ok(researchMultiplier(g, g.labs[0]) < before);
+});
+
+test('simple mode: the pedal ramps funding to capabilities in ~1 s and back at the same rate', () => {
+  const g = advancedGame(4);
+  assert.equal(g.labs[0].research, 0);
+  runTo(g, 0.5, true);
+  assert.ok(Math.abs(g.labs[0].research - 0.5) < 0.02, `research ${g.labs[0].research}`);
+  runTo(g, 1.5, true);
+  assert.equal(g.labs[0].research, 1);
+  assert.equal(g.labs[0].internalFraction * g.labs[0].externalFraction, 1);
+  runTo(g, 2, false);
+  assert.ok(Math.abs(g.labs[0].research - 0.5) < 0.02, `research ${g.labs[0].research}`);
+  runTo(g, 3, false);
+  assert.equal(g.labs[0].research, 0);
+});
+
+test('advanced: danger zone and breakthroughs scale with the frontier', () => {
+  const g = advancedGame(4);
+  const width = (center) => zonePoint(g, center, 1) - zonePoint(g, center, 0);
+  assert.ok(Math.abs(width(1000) / width(10) - 100) < 1e-9);
+  assert.ok(Math.abs(zonePoint(g, 10, 0.5) - 10) < 1e-12);
+  for (const lab of g.labs) lab.ownSafety = 500;
+  const before = frontier(g, 0);
+  while (g.t < 60 && !g.events.some((e) => e.real && e.t > 0)) step(g);
+  const e = g.events.find((x) => x.real);
+  assert.ok(e && e.size >= ADVANCED.breakthroughMin && e.size <= ADVANCED.breakthroughMax);
+  assert.ok(frontier(g, 0) - before > ADVANCED.breakthroughMin * before * 0.99);
 });

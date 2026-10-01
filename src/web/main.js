@@ -1,17 +1,24 @@
 import {
-  SIM, DEPLOY_LAG, mixSeed, UNCERTAINTY, createGame, tick, isLive, bandCenter, playerRiskCapability, frontier, aiResearchShare, researchMultiplier, TAKEOFF, researchLag, pendingResearch,
+  SIM, DEPLOY_LAG, mixSeed, createGame, tick, isLive, bandCenter, zonePoint, playerRiskCapability, frontier, aiResearchShare, researchMultiplier, TAKEOFF, researchLag, pendingResearch,
   expectedMonthlyRisk, monthlyRisk, cumulativeRisk, monthsRemaining, gameDate, CLOCK,
 } from './sim.js';
 
 const $ = (sel) => document.querySelector(sel);
 const params = new URLSearchParams(location.search);
-const halfWidth = params.has('w') ? Number(params.get('w')) : UNCERTAINTY.halfWidth;
-if (!(Number.isFinite(halfWidth) && halfWidth >= 0)) throw Error(`Invalid ?w=${params.get('w')}; expected a non-negative number.`);
-const advanced = params.get('mode') === 'advanced';
-// Classic keeps Paradigm's start date; advanced starts on the day you play.
+// ?w= zone half-width: capability units in original mode, log units otherwise (default 0.4: −33% to +49%).
+const halfWidth = params.has('w') ? Number(params.get('w')) : undefined;
+if (!(halfWidth === undefined || (Number.isFinite(halfWidth) && halfWidth >= 0))) throw Error(`Invalid ?w=${params.get('w')}; expected a non-negative number.`);
+// simple (default): one pedal driving the advanced dynamics; advanced: three policy sliders;
+// original: a faithful replica of Paradigm's game.
+const MODES = { simple: 'Simple', advanced: 'Advanced', original: 'Original' };
+const mode = params.get('mode') ?? 'simple';
+if (!(mode in MODES)) throw Error(`Invalid ?mode=${mode}; expected one of ${Object.keys(MODES).join(', ')}.`);
+const advanced = mode !== 'original'; // advanced dynamics underneath
+const sliders = mode === 'advanced';
+// The original keeps Paradigm's start date; the others start on the day you play.
 const now = new Date();
 const startUtc = advanced ? Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) : CLOCK.startUtc;
-document.body.dataset.mode = advanced ? 'advanced' : 'classic';
+document.body.dataset.mode = mode;
 
 const RISK_LEVELS = [['critical', 0.025], ['warning', 0.004], ['watch', 0.001]].map(([k, rate]) => [k, monthlyRisk(rate)]);
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -81,28 +88,31 @@ function renderPanels() {
   const center = bandCenter(g);
   const what = advanced ? 'Risk-weighted capability' : 'Frontier model';
   $('#risk-zone').textContent =
-    c <= center - g.halfWidth ? `${what} below danger zone`
-      : c >= center + g.halfWidth ? `${what} above danger zone`
+    c <= zonePoint(g, center, 0) ? `${what} below danger zone`
+      : c >= zonePoint(g, center, 1) ? `${what} above danger zone`
         : `${what} in danger zone`;
+  // Each slider: what 0% means on the left, what 100% means on the right, with shares and amounts.
+  const sides = (id, lo, hi, loAmount, hiAmount) => {
+    const v = Number($(`#${id}`).value);
+    const amount = (x) => (x === undefined ? '' : ` · ${cap(x)}`);
+    $(`#${id}-lo`).textContent = `${lo} (${100 - v}%)${amount(loAmount)}`;
+    $(`#${id}-hi`).textContent = `${hi} (${v}%)${amount(hiAmount)}`;
+  };
   if (advanced) {
     const me = g.labs[0];
-    // Each slider: what 0% means on the left, what 100% means on the right, with shares and amounts.
-    const sides = (id, lo, hi, loAmount, hiAmount) => {
-      const v = Number($(`#${id}`).value);
-      const amount = (x) => (x === undefined ? '' : ` · ${cap(x)}`);
-      $(`#${id}-lo`).textContent = `${lo} (${100 - v}%)${amount(loAmount)}`;
-      $(`#${id}-hi`).textContent = `${hi} (${v}%)${amount(hiAmount)}`;
-    };
     const share = aiResearchShare(me);
     const multiplier = researchMultiplier(g, me);
     const pending = pendingResearch(me);
-    const days = (ratio) => {
-      const d = researchLag(multiplier, ratio) * CLOCK.daysPerSecond;
+    const days = (safety) => {
+      const d = researchLag(multiplier, safety) * CLOCK.daysPerSecond;
       return d >= 14 ? `${Math.round(d / 7)} wk` : d >= 1 ? `${Math.round(d)} d` : '<1 d';
     };
     $('#takeoff').textContent = `Your AI does ${Math.round(100 * share)}% of your research (speed ×${multiplier < 1000 ? multiplier.toPrecision(3) : compact.format(multiplier)} vs. humans alone)`
-      + ` · in flight: +${cap(pending.capability)} capability (lands in ${days(1)}), +${cap(pending.safety)} safety (${days(TAKEOFF.safetyLagRatio)})`;
+      + ` · in flight: +${cap(pending.capability)} capability (lands in ${days(false)}), +${cap(pending.safety)} safety (${days(true)})`;
     $('#takeoff').dataset.level = share >= 0.95 ? 'takeoff' : share >= 0.5 ? 'dominant' : '';
+  }
+  if (sliders) {
+    const me = g.labs[0];
     sides('research', 'Safety', 'Capabilities');
     sides('internal', 'Held back', 'Run internally', me.available - me.internal, me.internal);
     sides('external', 'Internal only', 'Sold externally', me.internal - me.deployed, me.deployed);
@@ -111,8 +121,8 @@ function renderPanels() {
   // After the game, closing the results turns the button into a way back to them.
   const reviewing = !isLive(g) && $('#result').hidden;
   canvas.style.cursor = reviewing ? (view ? 'grab' : 'crosshair') : '';
-  $('#pedal-text').textContent = !started ? 'Start' : reviewing ? 'Show results' : !isLive(g) ? 'Game over' : advanced ? 'Running' : 'Accelerate';
-  $('#accelerator').disabled = reviewing ? false : !isLive(g) || (advanced && started);
+  $('#pedal-text').textContent = !started ? 'Start' : reviewing ? 'Show results' : !isLive(g) ? 'Game over' : sliders ? 'Running' : 'Accelerate';
+  $('#accelerator').disabled = reviewing ? false : !isLive(g) || (sliders && started);
   $('#accelerator').setAttribute('aria-pressed', String(held && g.phase === 'running'));
 }
 
@@ -152,7 +162,9 @@ function showResult() {
   const real = g.events.filter((e) => e.real).length;
   $('#result-frontier').textContent = g.halfWidth === 0
     ? 'The frontier was shown exactly this game (w=0).'
-    : `The true frontier ended ${Math.abs(b).toFixed(2)} ${b > 0 ? 'below' : 'above'} the center of your danger zone (zone half-width ${g.halfWidth}).`
+    : advanced
+      ? `The true frontier ended ${Math.round(100 * Math.abs(Math.expm1(-b)))}% ${b > 0 ? 'below' : 'above'} the center of your danger zone (zone: ${Math.round(100 * Math.expm1(-g.halfWidth))}% to +${Math.round(100 * Math.expm1(g.halfWidth))}%).`
+      : `The true frontier ended ${Math.abs(b).toFixed(2)} ${b > 0 ? 'below' : 'above'} the center of your danger zone (zone half-width ${g.halfWidth}).`
       + (advanced ? ` ${real} of ${g.events.length} apparent safety breakthroughs were real (▲ real, ✕ false on the chart).` : '');
   $('#result').hidden = false;
 }
@@ -177,8 +189,8 @@ function viewport(g) {
   const end = live ? Math.max(WINDOW, g.t + DEPLOY_LAG + 1) : view ? view.end : Math.max(g.t, 1);
   const start = live ? Math.max(0, end - WINDOW) : view ? view.start : 0;
   const visible = g.history.filter((h) => h.t >= start && h.t <= end);
-  const lows = visible.flatMap((h) => [h.center - g.halfWidth, ...h.deployed]);
-  const highs = visible.flatMap((h) => [h.center + g.halfWidth, ...h.deployed]);
+  const lows = visible.flatMap((h) => [zonePoint(g, h.center, 0), ...h.deployed]);
+  const highs = visible.flatMap((h) => [zonePoint(g, h.center, 1), ...h.deployed]);
   if (live) highs.push(g.labs[0].position, ...(advanced ? visible.flatMap((h) => [h.latent[0], h.internal[0]]) : []));
   else highs.push(...visible.flatMap((h) => [...h.frontier, ...(advanced ? [...h.latent, ...h.internal] : [])]));
   const lo = Math.max(0, Math.min(...lows) - 2);
@@ -260,7 +272,7 @@ function drawChart() {
   const MIN_ZONE_PX = 8;
   const drawZone = (centerOf, rgb, alpha) => {
     const edges = hist.map((h) => {
-      const [lo, hi] = [Y(centerOf(h) - g.halfWidth), Y(centerOf(h) + g.halfWidth)];
+      const [lo, hi] = [Y(zonePoint(g, centerOf(h), 0)), Y(zonePoint(g, centerOf(h), 1))];
       const mid = (lo + hi) / 2;
       const half = Math.max(MIN_ZONE_PX / 2, (lo - hi) / 2);
       return { x: X(h.t), bottom: mid + half, top: mid - half };
@@ -370,7 +382,7 @@ function showInspector(g, h) {
     ['Internal', ...both((i) => cap(h.internal[i]))],
     ['Latent', ...both((i) => cap(h.latent[i]))],
     ['True safety frontier', ...both((i) => cap(h.frontier[i]))],
-    ['Danger zone (estimate)', ...both((i) => `${cap(h.centers[i] - g.halfWidth)}–${cap(h.centers[i] + g.halfWidth)}`)],
+    ['Danger zone (estimate)', ...both((i) => `${cap(zonePoint(g, h.centers[i], 0))}–${cap(zonePoint(g, h.centers[i], 1))}`)],
     ['Funding (capability)', ...both((i) => `${Math.round(100 * h.research[i])}%`)],
     ['AI research speed-up', ...both((i) => `×${h.multiplier[i] < 1000 ? h.multiplier[i].toPrecision(3) : compact.format(h.multiplier[i])}`)],
     ['True risk / month', ...both((i) => pctText(monthlyRisk(h.labRates[i])))],
@@ -379,7 +391,7 @@ function showInspector(g, h) {
     ['Deployed', ...both((i) => cap(h.deployed[i]))],
     ['Cash', ...both((i) => money(h.cash[i]))],
     ['True frontier (shared)', cap(h.frontier[0]), ''],
-    ['Your danger zone', `${cap(h.center - g.halfWidth)}–${cap(h.center + g.halfWidth)}`, ''],
+    ['Your danger zone', `${cap(zonePoint(g, h.center, 0))}–${cap(zonePoint(g, h.center, 1))}`, ''],
     ['True risk / month', pctText(monthlyRisk(h.labRates[0])), ''],
   ];
   const el = $('#inspect');
@@ -449,7 +461,7 @@ function press() {
   }
   if (game.phase !== 'running') return;
   started = true;
-  held = !advanced;
+  held = !sliders;
 }
 
 function release() {
@@ -483,18 +495,19 @@ const KEYS = {
   KeyS: ['#internal', -10], KeyE: ['#external', 10], KeyD: ['#external', -10],
 };
 addEventListener('keydown', (e) => {
-  if (!advanced || !(e.code in KEYS) || e.target.matches('input')) return;
+  if (!sliders || !(e.code in KEYS) || e.target.matches('input')) return;
   e.preventDefault();
   const [sel, delta] = KEYS[e.code];
   $(sel).value = Number($(sel).value) + delta;
 });
 
-const modeLink = $('#mode-link');
-const other = new URLSearchParams(params);
-if (advanced) other.delete('mode');
-else other.set('mode', 'advanced');
-modeLink.href = `?${other}`;
-modeLink.textContent = advanced ? 'Switch to classic mode' : 'Try advanced mode';
+$('#modes').replaceChildren(...Object.entries(MODES).map(([m, name]) => {
+  if (m === mode) return Object.assign(document.createElement('b'), { textContent: name });
+  const other = new URLSearchParams(params);
+  if (m === 'simple') other.delete('mode');
+  else other.set('mode', m);
+  return Object.assign(document.createElement('a'), { href: `?${other}`, textContent: name });
+}).flatMap((el, i) => (i ? [' · ', el] : [el])));
 
 let last = null;
 let pending = 0;
@@ -502,7 +515,7 @@ function frame(now) {
   if (last !== null && started && isLive(game)) {
     pending += Math.min(0.1, (now - last) / 1000) * Number($('#game-speed').value);
     while (pending >= SIM.dt && isLive(game)) {
-      tick(game, advanced ? controls() : held);
+      tick(game, sliders ? controls() : held);
       pending -= SIM.dt;
     }
     if (!isLive(game)) {

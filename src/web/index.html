@@ -10,24 +10,24 @@
 <body>
   <main id="app">
     <header>
-      <h1>Pace <small>· hidden frontier<span class="advanced-only"> · advanced</span></small></h1>
-      <p class="muted">You run an AI lab.<span class="classic-only"> Hold to accelerate research; release to coast.</span> New research is ready to deploy two weeks after it's done.
+      <h1>Pace <small>· hidden frontier<span class="advanced-only"> · advanced</span><span class="original-only"> · original</span></small></h1>
+      <p class="muted">You run an AI lab.<span class="original-only"> Hold to accelerate research; release to coast.</span><span class="simple-only"> Hold to shift research funding from safety to capabilities (all the way in about a second); release to shift it back. Capability is deployed as soon as it's ready. Safety research raises <i>your own</i> frontier; the competitor has its own. Past human level (dotted line) your AI increasingly does your research, then takes off — and research output lands months after you fund it (less as AI speeds up), so capability can surge past safety.</span> New research is ready to deploy two weeks after it's done.
         Somewhere inside the shaded <b>danger zone</b> is the safety frontier — deploy above it and every month risks catastrophe for everyone.
         You don't know exactly where it is.</p>
       <p class="muted advanced-only"><b>Advanced:</b> no accelerator — you set policy. Split research funding between
         <i>capability</i> (builds latent capability) and <i>safety</i> (raises <i>your own</i> safety frontier; the competitor has its own, which you never see). Choose how much latent capability
         to run <i>internally</i> (speeds your research via self-improvement) and how much of that to sell <i>externally</i> (earns money; the only thing
-        your rival sees). Deployment rolls back and restores instantly. Research takes time to pay off: output lands about 3 months later (safety a bit longer), less as your AI speeds up research. Past human level (dotted line), your internally deployed AI increasingly does your research for you — then takes off.
+        your rival sees). Deployment rolls back and restores instantly. Research takes time to pay off: output lands about 3 months later, less as your AI speeds up research (safety lags behind, increasingly so). Past human level (dotted line), your internally deployed AI increasingly does your research for you — then takes off.
         Internal deployment carries full risk; external a bit more (its catastrophe threshold is slightly lower); undeployed latent capability a quarter.
         Your danger zone is only an estimate: the true frontier drifts around it and sometimes leaves it, and some apparent safety
         breakthroughs aren't real. <kbd>Q</kbd>/<kbd>A</kbd> capability, <kbd>W</kbd>/<kbd>S</kbd> internal, <kbd>E</kbd>/<kbd>D</kbd> external.</p>
-      <p><a id="mode-link"></a></p>
+      <p id="modes"></p>
     </header>
 
     <section class="scoreboard">
       <div class="account you"><span class="label">Your cash</span><strong id="you-cash">$0</strong><span class="label">Net / month <b id="you-profit"></b></span></div>
       <div class="account them"><span class="label">Competitor cash</span><strong id="them-cash">$0</strong><span class="label">Net / month <b id="them-profit"></b></span></div>
-      <div class="account risk" id="risk-card" data-level="quiet"><span class="label">Expected risk / month<span class="advanced-only" title="Your lab only: the competitor's own frontier and hidden capability are invisible to you, and its risk adds to yours."> · your lab only</span></span><strong id="risk-value">0.00%</strong><span class="label" id="risk-zone">Below danger zone</span></div>
+      <div class="account risk" id="risk-card" data-level="quiet"><span class="label">Expected risk / month<span class="dynamics-only" title="Your lab only: the competitor's own frontier and hidden capability are invisible to you, and its risk adds to yours."> · your lab only</span></span><strong id="risk-value">0.00%</strong><span class="label" id="risk-zone">Below danger zone</span></div>
     </section>
 
     <section class="chart-wrap">
@@ -50,13 +50,13 @@
         <span><i class="key you"></i>You<span class="advanced-only"> (external)</span></span>
         <span><i class="key them"></i>Competitor</span>
         <span><i class="key zone"></i>Danger zone</span>
-        <span class="advanced-only"><i class="key internal"></i>Internal</span>
-        <span class="advanced-only"><i class="key latent"></i>Latent</span>
+        <span class="dynamics-only"><i class="key internal"></i>Internal</span>
+        <span class="dynamics-only"><i class="key latent"></i>Latent</span>
         <span><i class="key truth"></i>Your true frontier (revealed after)</span>
-        <span class="advanced-only"><i class="key truth them"></i>Competitor's true frontier (revealed after)</span>
-        <span class="advanced-only"><i class="key zone them"></i>Competitor's zone (revealed after)</span>
+        <span class="dynamics-only"><i class="key truth them"></i>Competitor's true frontier (revealed after)</span>
+        <span class="dynamics-only"><i class="key zone them"></i>Competitor's zone (revealed after)</span>
       </div>
-      <p id="takeoff" class="advanced-only"></p>
+      <p id="takeoff" class="dynamics-only"></p>
       <label class="control advanced-only"><span id="research-lo"></span><input id="research" type="range" min="0" max="100" step="1" value="70" data-default="70" aria-label="Research funding: safety to capabilities" /><span id="research-hi"></span></label>
       <label class="control advanced-only"><span id="internal-lo"></span><input id="internal" type="range" min="0" max="100" step="1" value="100" data-default="100" aria-label="Ready capability: held back to run internally" /><span id="internal-hi"></span></label>
       <label class="control advanced-only"><span id="external-lo"></span><input id="external" type="range" min="0" max="100" step="1" value="100" data-default="100" aria-label="Internal capability: internal only to sold externally" /><span id="external-hi"></span></label>
