@@ -2,7 +2,7 @@
 // Usage: node src/tools/eval_bot.mjs [seeds=100]
 // Writes outputs/run_<timestamp>_bot_tuning/{metadata.json,results.json,summary.md}.
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { BOT, mixSeed, createGame, tick, isLive, bandCenter, stoppingDistance, riskCapability, frontier, labRisk } from '../web/sim.js';
+import { BOT, mixSeed, createGame, tick, isLive, bandCenter, stoppingDistance, riskCapability, frontier, labRisk, committedLatent } from '../web/sim.js';
 
 const SEEDS = Number(process.argv[2] ?? 100);
 
@@ -25,7 +25,7 @@ function aim(g, position) {
 function playerInput(g, position) {
   const me = g.labs[0];
   const target = aim(g, position);
-  const stop = me.position + stoppingDistance(g, me);
+  const stop = (g.advanced ? committedLatent(me) : me.position) + stoppingDistance(g, me);
   if (!g.advanced) return stop < target;
   const deploy = Math.max(0, Math.min(me.available, target));
   return {

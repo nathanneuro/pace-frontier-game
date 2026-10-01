@@ -203,43 +203,42 @@ function advanceSafety(g, dt) {
 // then grows exponentially in capability, which means hyperbolically in time (finite-time
 // blow-up). maxMultiplier (research speed relative to humans alone) only keeps the integrator finite.
 export const TAKEOFF = Object.freeze({
-  // New internal capability feeds back into research only after a lag (integrating new models
-  // into research workflows): feedbackLagMonths divided by the lab's current AI research multiplier,
-  // so AI speeds up its own integration (3 months at the start, under a day past ~x90).
-  // Rolling back is immediate, and so is restoring capability that was already integrated.
-  // Safety research integrates new models more slowly: its lag is safetyLagRatio times longer.
-  feedbackLagMonths: 3,
+  // Research output lands after a lag: researchLagMonths divided by the lab's current AI research
+  // multiplier (AI speeds its own research cycle: 3 months at the start, under a day past ~x90).
+  // Research *power* is current, so rolling back internal deployment cuts it immediately.
+  // Safety research takes safetyLagRatio times longer to pay off.
+  researchLagMonths: 3,
   safetyLagRatio: 1.15,
-  humanLevel: 32,
+  humanLevel: 24,
   scale: 8,
   maxMultiplier: 20000,
 });
 
-// Feedback lag in game seconds for a lab whose AI currently multiplies research speed by
+// Research lag in game seconds for a lab whose AI currently multiplies research speed by
 // `multiplier`, for capability research (ratio 1) or safety research.
-export function feedbackLag(multiplier, ratio = 1) {
-  return (ratio * TAKEOFF.feedbackLagMonths) / 12 / CLOCK.yearsPerSecond / multiplier;
+export function researchLag(multiplier, ratio = 1) {
+  return (ratio * TAKEOFF.researchLagMonths) / 12 / CLOCK.yearsPerSecond / multiplier;
 }
 
-const newIntegration = () => ({ integrated: 0, cursor: 0 });
-
-// Internal capability driving one kind of research at time t: the current internal deployment, capped
-// at the highest internal capability that had been deployed by (t - lag) and so has finished
-// integrating. Integration is never undone: if the lag grows (after a rollback) the cursor just waits.
-function integrate(lab, state, t, ratio) {
-  const when = t - feedbackLag(takeoffMultiplier(lab.feedback), ratio);
-  const trace = lab.internalTrace;
-  while (state.cursor < trace.length && trace[state.cursor].t <= when) {
-    state.integrated = Math.max(state.integrated, trace[state.cursor].internal);
-    state.cursor++;
+// Research output in flight: { at, amount } entries. Lags shrink as AI improves, so later output
+// can land before earlier output; landing is by time, not order.
+function land(pipeline, t) {
+  let landed = 0;
+  for (let k = pipeline.length - 1; k >= 0; k--) {
+    if (pipeline[k].at > t + EPS) continue;
+    landed += pipeline[k].amount;
+    pipeline.splice(k, 1);
   }
-  return Math.min(lab.internal, state.integrated);
+  return landed;
 }
 
-function updateFeedback(lab, t) {
-  lab.feedback = integrate(lab, lab.capabilityIntegration, t, 1);
-  lab.safetyFeedback = integrate(lab, lab.safetyIntegration, t, TAKEOFF.safetyLagRatio);
-}
+const inFlight = (pipeline) => pipeline.reduce((sum, p) => sum + p.amount, 0);
+
+// Capability and safety research a lab has paid for that hasn't landed yet (advanced mode).
+export const pendingResearch = (lab) => ({ capability: inFlight(lab.capabilityPipeline), safety: inFlight(lab.safetyPipeline) });
+
+// Latent capability the lab will have once its in-flight research lands.
+export const committedLatent = (lab) => lab.position + inFlight(lab.capabilityPipeline);
 
 // Research speed relative to human researchers alone, given the internal capability doing research.
 function takeoffMultiplier(capability) {
@@ -248,13 +247,13 @@ function takeoffMultiplier(capability) {
 
 // Share of a lab's capability research done by its own AI (advanced mode).
 export function aiResearchShare(lab) {
-  return 1 / (1 + Math.exp(-(Math.max(0, lab.feedback) - TAKEOFF.humanLevel) / TAKEOFF.scale));
+  return 1 / (1 + Math.exp(-(Math.max(0, lab.internal) - TAKEOFF.humanLevel) / TAKEOFF.scale));
 }
 
 // Top research speed. Classic: the original's bounded recursive self-improvement, driven by research
 // position. Advanced: takeoff driven by internally deployed capability.
 function topSpeed(g, lab) {
-  if (g.advanced) return SPEED.initialSpeed * takeoffMultiplier(lab.feedback);
+  if (g.advanced) return SPEED.initialSpeed * takeoffMultiplier(lab.internal);
   const x = Math.max(0, lab.position);
   const early = -Math.expm1(-x / SPEED.earlyRsiScale);
   const r = Math.max(0, x - SPEED.rsiThreshold) / SPEED.rsiScale;
@@ -267,8 +266,7 @@ function topSpeed(g, lab) {
 export const researchMultiplier = (g, lab) => topSpeed(g, lab) / SPEED.initialSpeed;
 
 // Safety research gets the same AI researchers, but at safetyAiEfficiency of their capability effect.
-// Its AI capability lags further behind (safetyLagRatio).
-export const safetyMultiplier = (g, lab) => 1 + ADVANCED.safetyAiEfficiency * (takeoffMultiplier(lab.safetyFeedback) - 1);
+export const safetyMultiplier = (g, lab) => 1 + ADVANCED.safetyAiEfficiency * (researchMultiplier(g, lab) - 1);
 
 export function stoppingDistance(g, lab) {
   return lab.speed ** 2 / (2 * SIM.deceleration * topSpeed(g, lab));
@@ -283,7 +281,9 @@ function moveLab(g, lab, dt) {
     const target = lab.research * top;
     const change = SIM.acceleration * top * dt;
     lab.speed = v0 < target ? Math.min(target, v0 + change) : Math.max(target, v0 - change);
-    lab.position += ((v0 + lab.speed) / 2) * dt;
+    const lag = researchLag(researchMultiplier(g, lab));
+    lab.capabilityPipeline.push({ at: g.t + lag, amount: ((v0 + lab.speed) / 2) * dt });
+    lab.position += land(lab.capabilityPipeline, g.t);
     return;
   }
   if (lab.held) {
@@ -419,8 +419,7 @@ export function createGame(seed = 1, {
     // research = capability share of research funding (advanced). Classic: all fractions are 1.
     labs: [0, 1].map(() => ({
       position: 0, available: 0, internalFraction: 1, externalFraction: 1, internal: 0, deployed: 0, deployments: [],
-      research: 1, safetyFunding: 0, ownSafety: 0, feedback: 0, safetyFeedback: 0, internalTrace: [],
-      capabilityIntegration: newIntegration(), safetyIntegration: newIntegration(), accumulated: 0, bias: startBias(), speed: 0, held: false, cash: 0, profit: PROFIT.baseProfit,
+      research: 1, safetyFunding: 0, ownSafety: 0, capabilityPipeline: [], safetyPipeline: [], accumulated: 0, bias: startBias(), speed: 0, held: false, cash: 0, profit: PROFIT.baseProfit,
     })),
     history: [],
   };
@@ -468,8 +467,10 @@ function advanceWorld(g, dt) {
   let seen = 0; // jump in the player's estimate
   g.labs.forEach((lab, i) => {
     if (g.phase === 'running') {
-      lab.ownSafety += (1 - lab.research) * A.safetyResearchSpeed * safetyMultiplier(g, lab) * dt;
+      const lag = researchLag(researchMultiplier(g, lab), TAKEOFF.safetyLagRatio);
+      lab.safetyPipeline.push({ at: g.t + lag, amount: (1 - lab.research) * A.safetyResearchSpeed * safetyMultiplier(g, lab) * dt });
     }
+    lab.ownSafety += land(lab.safetyPipeline, g.t);
     lab.bias = driftOffset(lab.bias, g.proc, dt, rng);
     for (const real of [true, false]) {
       if (!(random(rng) < (real ? A.realBreakthroughRate : g.proc.falseRate) * dt)) continue;
@@ -513,9 +514,7 @@ export function step(g) {
   const rate0 = totalHazardRate(g);
   const belief0 = beliefRates(g);
   const profit0 = g.labs.map((lab, i) => profitRate(lab.deployed, g.labs[1 - i].deployed));
-  if (g.advanced) for (const lab of g.labs) lab.internalTrace.push({ t: g.t, internal: lab.internal });
   g.t += dt;
-  if (g.advanced) for (const lab of g.labs) updateFeedback(lab, g.t);
   for (const lab of g.labs) {
     const before = lab.position;
     moveLab(g, lab, dt);
@@ -577,8 +576,6 @@ export function setControls(g, idx, { research, internal, external }) {
   const lab = g.labs[idx];
   [lab.research, lab.internalFraction, lab.externalFraction] = [research, internal, external];
   applyFractions(lab);
-  lab.feedback = Math.min(lab.internal, lab.capabilityIntegration.integrated);
-  lab.safetyFeedback = Math.min(lab.internal, lab.safetyIntegration.integrated);
 }
 
 // Bot capability target. Original: aim a quarter into the zone; if behind, 1.5 past the rival,
@@ -606,7 +603,7 @@ export function botPolicy(g, idx = 1) {
   const { internalHeadroom, latentHeadroom } = g.bot === 'original' ? BOT : g.bot;
   const riskMargin = Math.max(internalHeadroom, g.externalThresholdGap) + g.latentRiskWeight * (latentHeadroom - internalHeadroom);
   const externalTarget = target - (g.bot === 'original' ? 0 : riskMargin);
-  const research = me.position + stoppingDistance(g, me) < externalTarget + latentHeadroom - hysteresis ? 1 : 0;
+  const research = committedLatent(me) + stoppingDistance(g, me) < externalTarget + latentHeadroom - hysteresis ? 1 : 0;
   const internal = Math.max(0, Math.min(me.available, externalTarget + internalHeadroom));
   const external = Math.max(0, Math.min(internal, externalTarget));
   return {

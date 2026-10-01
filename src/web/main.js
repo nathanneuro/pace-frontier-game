@@ -1,5 +1,5 @@
 import {
-  SIM, DEPLOY_LAG, mixSeed, UNCERTAINTY, createGame, tick, isLive, bandCenter, playerRiskCapability, frontier, aiResearchShare, researchMultiplier, TAKEOFF,
+  SIM, DEPLOY_LAG, mixSeed, UNCERTAINTY, createGame, tick, isLive, bandCenter, playerRiskCapability, frontier, aiResearchShare, researchMultiplier, TAKEOFF, researchLag, pendingResearch,
   expectedMonthlyRisk, monthlyRisk, cumulativeRisk, monthsRemaining, gameDate, CLOCK,
 } from './sim.js';
 
@@ -89,7 +89,13 @@ function renderPanels() {
     };
     const share = aiResearchShare(me);
     const multiplier = researchMultiplier(g, me);
-    $('#takeoff').textContent = `Your AI does ${Math.round(100 * share)}% of your research (speed ×${multiplier < 1000 ? multiplier.toPrecision(3) : compact.format(multiplier)} vs. humans alone)`;
+    const pending = pendingResearch(me);
+    const days = (ratio) => {
+      const d = researchLag(multiplier, ratio) * CLOCK.daysPerSecond;
+      return d >= 14 ? `${Math.round(d / 7)} wk` : d >= 1 ? `${Math.round(d)} d` : '<1 d';
+    };
+    $('#takeoff').textContent = `Your AI does ${Math.round(100 * share)}% of your research (speed ×${multiplier < 1000 ? multiplier.toPrecision(3) : compact.format(multiplier)} vs. humans alone)`
+      + ` · in flight: +${cap(pending.capability)} capability (lands in ${days(1)}), +${cap(pending.safety)} safety (${days(TAKEOFF.safetyLagRatio)})`;
     $('#takeoff').dataset.level = share >= 0.95 ? 'takeoff' : share >= 0.5 ? 'dominant' : '';
     sides('research', 'Safety', 'Capabilities');
     sides('internal', 'Held back', 'Run internally', me.available - me.internal, me.internal);

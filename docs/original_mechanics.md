@@ -69,25 +69,21 @@ other things endogenous.
 **Controls** (no accelerator; the button only starts the game):
 
 1. *Research*: capability share `r` of research funding. Latent research speed approaches
-   `r · top`. Top speed = human researchers (1.5) + AI researchers `1.5 · exp((I − 32)/8)` (`TAKEOFF`
-   in `sim.js`). Here `I` is the **internally deployed** capability that feeds back into research:
-   current internal deployment, capped at the highest internal capability deployed at least one
-   *feedback lag* ago. The lag is 3 months divided by the lab's current AI research multiplier, so AI
-   speeds up its own integration: 3 months at the start, 1.5 at human level, under a day past ×90.
-   Rolling back is immediate, and so is restoring already-integrated capability. Safety research's
-   lag is 15% longer (`TAKEOFF.safetyLagRatio`). Because both lags collapse as the multiplier rises,
-   that gap matters only in the run-up to the surge. In a 50/50-funded game, capability overtakes the
-   own frontier around t ≈ 64–68. That is driven mainly by the funding split and AI's 75% safety
-   efficiency. The AI share of research is therefore logistic in `I`: ~2% at the
-   start, 50% at human level (`I = 32`), >95% above `I ≈ 56`. Human level was lowered from 40 when the
-   lag was added, to keep the median time to 95% AI share at ~11.6 game months on default settings. Beyond that,
-   speed grows exponentially in capability, i.e. hyperbolically in time: a finite-time takeoff. The
-   ×20,000 cap on research speed exists only to keep the numbers finite. On default settings (70%
-   capability, full deployment), takeoff happens around t ≈ 45 s. The advanced chart uses a log scale
-   (`log(1 + v)`) so takeoff doesn't flatten the early game. The remaining `1 − r` funds
-   safety, which raises **your own** true frontier by `(1 − r) · 1.2 · m_s` per second. Here
-   `m_s = 1 + 0.75 · (top / 1.5 − 1)`: AI researchers speed safety research too, but at 75% of their
-   effect on capability research (`ADVANCED.safetyAiEfficiency`).
+   `r · top`. Top speed = human researchers (1.5) + AI researchers `1.5 · exp((I − 24)/8)` (`TAKEOFF`
+   in `sim.js`), where `I` is current internally deployed capability. The AI share of research is
+   therefore logistic in `I`: ~5% at the start, 50% at human level (`I = 24`), >95% above `I ≈ 48`.
+   Beyond that, speed grows exponentially in capability, i.e. hyperbolically in time: a finite-time
+   takeoff. The ×20,000 cap on research speed exists only to keep the numbers finite.
+   **Research lag:** research *power* is current, so rolling back internal deployment cuts it
+   immediately. Research *output* lands after `3 months / multiplier` for capability (into latent,
+   then the 2-week deployment lag) and 15% longer for safety (`TAKEOFF.safetyLagRatio`). AI speeds up
+   its own research cycle: 3 months at the start, under a day past ×90. Human level was set to keep
+   the median time to 95% AI share at ~10.3 game months on default settings. The advanced chart uses
+   a log scale (`log(1 + v)`) so takeoff doesn't flatten the early game.
+   The remaining `1 − r` funds safety, which raises **your own** true frontier by
+   `(1 − r) · 1.2 · m_s` per second (after the safety lag). Here `m_s = 1 + 0.75 · (multiplier − 1)`:
+   AI researchers speed safety research too, but at 75% of their effect on capability research
+   (`ADVANCED.safetyAiEfficiency`).
 2. *Internal*: fraction of available (lagged) latent capability run inside the lab.
 3. *External*: fraction of internal capability sold to customers. Profit depends on the two labs'
    external capability. External is the only tier the rival observes.

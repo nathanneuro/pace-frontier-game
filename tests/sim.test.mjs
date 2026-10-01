@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   SIM, createGame, tick, isLive, bandCenter, beliefWeights, expectedMonthlyRisk,
-  monthlyRisk, hazardRate, riskCapability, playerRiskCapability, labRisk, aiResearchShare, TAKEOFF, stoppingDistance, researchMultiplier, safetyMultiplier, feedbackLag, CLOCK, frontier, labHazardRate, totalHazardRate, setControls, ADVANCED, mixSeed,
+  monthlyRisk, hazardRate, riskCapability, playerRiskCapability, labRisk, aiResearchShare, TAKEOFF, stoppingDistance, researchMultiplier, safetyMultiplier, researchLag, pendingResearch, committedLatent, CLOCK, frontier, labHazardRate, totalHazardRate, setControls, ADVANCED, mixSeed,
 } from '../src/web/sim.js';
 
 function play(g, policy) {
@@ -200,7 +200,7 @@ test('advanced takeoff: AI share is half at human level, dominant above, and spe
   const g = createGame(1, { advanced: true });
   const lab = g.labs[0];
   const at = (internal) => {
-    lab.feedback = internal;
+    lab.internal = internal;
     lab.speed = 0;
     return [aiResearchShare(lab), stoppingDistance(g, { ...lab, speed: 1 })];
   };
@@ -222,44 +222,41 @@ test('advanced: AI boosts safety research, but less than capability research', (
   const g = createGame(1, { advanced: true });
   const lab = g.labs[0];
   for (const internal of [0, 20, 40, 60, 80]) {
-    lab.feedback = internal;
-    lab.safetyFeedback = internal;
+    lab.internal = internal;
     const [cap, safe] = [researchMultiplier(g, lab), safetyMultiplier(g, lab)];
     assert.ok(safe >= 1 && safe <= cap);
     assert.ok(Math.abs((safe - 1) - ADVANCED.safetyAiEfficiency * (cap - 1)) < 1e-12);
   }
 });
 
-test('advanced: feedback lag is 3 months divided by the AI research multiplier', () => {
+
+test('advanced: research output lands after 3 months / AI multiplier; safety 15% later', () => {
   const months = (s) => s * CLOCK.yearsPerSecond * 12;
-  assert.ok(Math.abs(months(feedbackLag(1)) - 3) < 1e-9);
-  assert.ok(Math.abs(months(feedbackLag(2)) - 1.5) < 1e-9);
-  assert.ok(months(feedbackLag(100)) * 30.4 < 1, 'under a day at x100');
-  const g = immortal(createGame(4, { advanced: true }));
-  while (g.t < 40) tick(g, all);
-  const lab = g.labs[0];
-  assert.ok(lab.feedback < lab.internal, 'new capability is still integrating');
+  assert.ok(Math.abs(months(researchLag(1)) - 3) < 1e-9);
+  assert.ok(Math.abs(months(researchLag(2)) - 1.5) < 1e-9);
+  assert.ok(Math.abs(researchLag(3, TAKEOFF.safetyLagRatio) / researchLag(3) - 1.15) < 1e-12);
+  assert.ok(months(researchLag(100)) * 30.4 < 1, 'under a day at x100');
+  // Nothing lands for the first ~3 months of research.
+  const g = advancedGame(4);
+  runTo(g, researchLag(1) * 0.9, all);
+  assert.equal(g.labs[0].position, 0);
+  assert.ok(pendingResearch(g.labs[0]).capability > 0);
+  runTo(g, researchLag(1) * 1.2, all);
+  assert.ok(g.labs[0].position > 0);
 });
 
-test('advanced: rolling back internal deployment cuts feedback immediately; restoring is immediate too', () => {
+test('advanced: switching funding to safety stops new capability output, but in-flight research still lands', () => {
+  const g = runTo(advancedGame(4), 20, all);
+  const lab = g.labs[0];
+  const committed = committedLatent(lab);
+  runTo(g, 40, { ...all, research: 0 });
+  assert.ok(lab.position > committed - 2 && lab.position < committed + 2, `${lab.position} vs ${committed}`);
+  assert.ok(pendingResearch(lab).safety > 0 || lab.ownSafety > 0);
+});
+
+test('advanced: rolling back internal deployment cuts research power immediately', () => {
   const g = runTo(advancedGame(4), 30, all);
-  const lab = g.labs[0];
-  const before = lab.feedback;
-  assert.ok(before > 10 && before < lab.internal, 'feedback lags new capability');
+  const before = researchMultiplier(g, g.labs[0]);
   setControls(g, 0, { ...all, internal: 0.2 });
-  assert.equal(lab.feedback, lab.internal);
-  assert.ok(lab.feedback < before);
-  runTo(g, 32, { ...all, internal: 0.2 });
-  setControls(g, 0, all);
-  assert.ok(lab.feedback >= before, 'already-integrated capability returns at once');
-});
-
-test('advanced: safety research integrates new AI with a 15% longer lag', () => {
-  assert.ok(Math.abs(feedbackLag(3, TAKEOFF.safetyLagRatio) / feedbackLag(3) - 1.15) < 1e-12);
-  const g = runTo(advancedGame(4), 25, all);
-  const lab = g.labs[0];
-  assert.ok(lab.safetyFeedback < lab.feedback, `safety ${lab.safetyFeedback} vs capability ${lab.feedback}`);
-  setControls(g, 0, { ...all, internal: 0.1 });
-  assert.equal(lab.safetyFeedback, lab.internal);
-  assert.equal(lab.feedback, lab.internal);
+  assert.ok(researchMultiplier(g, g.labs[0]) < before);
 });
