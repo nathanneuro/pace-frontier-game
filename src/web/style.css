@@ -79,3 +79,11 @@ header a { color: inherit; }
 #takeoff[data-level="dominant"] { color: #d35400; }
 #takeoff[data-level="takeoff"] { color: #c0392b; font-weight: 700; }
 #game-speed { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--border); margin-left: 4px; }
+#inspect { position: absolute; top: 24px; z-index: 3; background: rgba(250, 250, 247, 0.96); border: 1px solid var(--border); padding: 8px 10px; pointer-events: none; font-size: 12px; }
+#inspect table { border-collapse: collapse; }
+#inspect :is(th, td) { padding: 1px 8px; text-align: right; white-space: nowrap; }
+#inspect :is(th, td):first-child { text-align: left; color: var(--muted); }
+#inspect th { font-weight: 400; color: var(--muted); }
+.inspect-title { font-weight: 700; margin-bottom: 4px; }
+.inspect-note { margin-top: 6px; color: var(--muted); max-width: 46ch; }
+.key.zone.them { background: linear-gradient(to top, rgba(0, 0, 0, 0.03), rgba(0, 0, 0, 0.2)); }

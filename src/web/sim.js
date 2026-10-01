@@ -432,10 +432,19 @@ export function createGame(seed = 1, {
   return g;
 }
 
+// History snapshot (every 0.1 s). Hidden quantities are recorded for the post-game review only.
 function record(g) {
   g.history.push({
     t: g.t, frontier: g.labs.map((_, i) => frontier(g, i)), center: bandCenter(g, 0),
+    centers: g.labs.map((_, i) => bandCenter(g, i)),
     deployed: g.labs.map((l) => l.deployed), internal: g.labs.map((l) => l.internal), latent: g.labs.map((l) => l.position),
+    cash: g.labs.map((l) => l.cash),
+    research: g.labs.map((l) => l.research),
+    multiplier: g.advanced ? g.labs.map((l) => researchMultiplier(g, l)) : null,
+    // True hazard rate per lab (advanced) or shared (classic), cumulative hazard, and what the player saw.
+    labRates: g.advanced ? [0, 1].map((i) => labHazardRate(g, i)) : [totalHazardRate(g)],
+    hazard: g.hazard,
+    seenRisk: expectedMonthlyRisk(g),
   });
 }
 

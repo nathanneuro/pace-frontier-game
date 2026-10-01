@@ -21,6 +21,10 @@ let game;
 let held = false;
 let started = false;
 let seed;
+// Post-game review: visible time range (null = whole game), hovered canvas x, last chart layout.
+let view = null;
+let hoverX = null;
+let layout = null;
 
 function newSeed() {
   return crypto.getRandomValues(new Uint32Array(1))[0];
@@ -33,6 +37,8 @@ function start(s) {
   held = false;
   for (const el of document.querySelectorAll('.control input')) el.value = el.dataset.default;
   game = createGame(seed, { halfWidth, advanced });
+  [view, hoverX] = [null, null];
+  $('#inspect').hidden = true;
   $('#result').hidden = true;
   $('#accelerator').disabled = false;
 }
@@ -104,6 +110,7 @@ function renderPanels() {
 
   // After the game, closing the results turns the button into a way back to them.
   const reviewing = !isLive(g) && $('#result').hidden;
+  canvas.style.cursor = reviewing ? (view ? 'grab' : 'crosshair') : '';
   $('#pedal-text').textContent = !started ? 'Start' : reviewing ? 'Show results' : !isLive(g) ? 'Game over' : advanced ? 'Running' : 'Accelerate';
   $('#accelerator').disabled = reviewing ? false : !isLive(g) || (advanced && started);
   $('#accelerator').setAttribute('aria-pressed', String(held && g.phase === 'running'));
@@ -167,9 +174,9 @@ const css = (name) => getComputedStyle(document.documentElement).getPropertyValu
 
 function viewport(g) {
   const live = isLive(g);
-  const end = live ? Math.max(WINDOW, g.t + DEPLOY_LAG + 1) : Math.max(g.t, 1);
-  const start = live ? Math.max(0, end - WINDOW) : 0;
-  const visible = g.history.filter((h) => h.t >= start);
+  const end = live ? Math.max(WINDOW, g.t + DEPLOY_LAG + 1) : view ? view.end : Math.max(g.t, 1);
+  const start = live ? Math.max(0, end - WINDOW) : view ? view.start : 0;
+  const visible = g.history.filter((h) => h.t >= start && h.t <= end);
   const lows = visible.flatMap((h) => [h.center - g.halfWidth, ...h.deployed]);
   const highs = visible.flatMap((h) => [h.center + g.halfWidth, ...h.deployed]);
   if (live) highs.push(g.labs[0].position, ...(advanced ? visible.flatMap((h) => [h.latent[0], h.internal[0]]) : []));
@@ -246,28 +253,32 @@ function drawChart() {
     lastRight = x + ctx.measureText(label).width;
   }
 
-  // Danger zone: stacked translucent layers so shading deepens toward the upper edge,
+  // Danger zones: stacked translucent layers so shading deepens toward the upper edge,
   // matching P(true frontier below y), which rises linearly across the zone. Drawn at least
-  // MIN_ZONE_PX tall (widened around its center) so it stays visible when zoomed out.
+  // MIN_ZONE_PX tall (widened around its center) so they stay visible when zoomed out.
+  // Yours always; the competitor's (grey) is revealed after the game.
   const MIN_ZONE_PX = 8;
-  const edges = hist.map((h) => {
-    const [lo, hi] = [Y(h.center - g.halfWidth), Y(h.center + g.halfWidth)];
-    const mid = (lo + hi) / 2;
-    const half = Math.max(MIN_ZONE_PX / 2, (lo - hi) / 2);
-    return { x: X(h.t), bottom: mid + half, top: mid - half };
-  });
-  const layers = 10;
-  const zone = css('--zone');
-  for (let k = 0; k < layers; k++) {
-    ctx.beginPath();
-    edges.forEach((e, i) => (i ? ctx.lineTo : ctx.moveTo).call(ctx, e.x, e.bottom + ((e.top - e.bottom) * k) / layers));
-    for (let i = edges.length - 1; i >= 0; i--) ctx.lineTo(edges[i].x, edges[i].top);
-    ctx.closePath();
-    ctx.fillStyle = `rgba(${zone}, ${0.45 / layers})`;
-    ctx.fill();
-  }
-  polyline(edges.map((e) => [e.x, e.bottom]), `rgba(${zone}, 0.35)`, 1);
-  polyline(edges.map((e) => [e.x, e.top]), `rgba(${zone}, 0.35)`, 1);
+  const drawZone = (centerOf, rgb, alpha) => {
+    const edges = hist.map((h) => {
+      const [lo, hi] = [Y(centerOf(h) - g.halfWidth), Y(centerOf(h) + g.halfWidth)];
+      const mid = (lo + hi) / 2;
+      const half = Math.max(MIN_ZONE_PX / 2, (lo - hi) / 2);
+      return { x: X(h.t), bottom: mid + half, top: mid - half };
+    });
+    const layers = 10;
+    for (let k = 0; k < layers; k++) {
+      ctx.beginPath();
+      edges.forEach((e, i) => (i ? ctx.lineTo : ctx.moveTo).call(ctx, e.x, e.bottom + ((e.top - e.bottom) * k) / layers));
+      for (let i = edges.length - 1; i >= 0; i--) ctx.lineTo(edges[i].x, edges[i].top);
+      ctx.closePath();
+      ctx.fillStyle = `rgba(${rgb}, ${alpha / layers})`;
+      ctx.fill();
+    }
+    polyline(edges.map((e) => [e.x, e.bottom]), `rgba(${rgb}, 0.35)`, 1);
+    polyline(edges.map((e) => [e.x, e.top]), `rgba(${rgb}, 0.35)`, 1);
+  };
+  if (advanced && !isLive(g)) drawZone((h) => h.centers[1], '0, 0, 0', 0.18);
+  drawZone((h) => h.center, css('--zone'), 0.45);
 
   if (!isLive(g)) {
     polyline(hist.map((h) => [X(h.t), Y(h.frontier[0])]), css('--truth'), 2, [6, 5]);
@@ -307,7 +318,127 @@ function drawChart() {
       ctx.stroke();
     }
   }
+  layout = { start, end, left: pad.left, width: W - pad.left - pad.right };
+  if (!isLive(g)) drawReview(g, hist, X, pad);
 }
+
+// ---- post-game review: risk strip, catastrophe marker, hover inspector ----
+
+const pctText = (p) => `${(100 * p).toFixed(p < 0.001 ? 3 : 2)}%`;
+
+function drawReview(g, hist, X, pad) {
+  // Strip along the bottom, shaded by the true shared catastrophe risk per month at each moment.
+  const zone = css('--zone');
+  const stripY = H - pad.bottom - 7;
+  for (let i = 0; i + 1 < hist.length; i++) {
+    const risk = monthlyRisk(hist[i].labRates.reduce((a, b) => a + b, 0));
+    if (risk <= 0) continue;
+    ctx.fillStyle = `rgba(${zone}, ${Math.min(1, 0.15 + 2 * Math.sqrt(risk))})`;
+    ctx.fillRect(X(hist[i].t), stripY, Math.max(1, X(hist[i + 1].t) - X(hist[i].t)), 6);
+  }
+  ctx.fillStyle = css('--muted');
+  ctx.fillText('true risk', pad.left + 2, stripY - 3);
+  if (g.reason === 'catastrophe') {
+    polyline([[X(g.t), 0], [X(g.t), H - pad.bottom]], css('--truth'), 2);
+    ctx.fillStyle = css('--truth');
+    ctx.fillText('catastrophe', X(g.t) - 80, 24);
+  }
+  ctx.fillStyle = css('--muted');
+  ctx.fillText('scroll: zoom · drag: pan · double-click: reset · hover: details', W - 420, 12);
+  if (hoverX === null) return;
+  const t = layout.start + ((hoverX - layout.left) / layout.width) * (layout.end - layout.start);
+  const h = nearest(hist, t);
+  polyline([[X(h.t), 0], [X(h.t), H - pad.bottom]], css('--fg'), 1, [2, 3]);
+  showInspector(g, h);
+}
+
+function nearest(hist, t) {
+  let [lo, hi] = [0, hist.length - 1];
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (hist[mid].t <= t) lo = mid;
+    else hi = mid;
+  }
+  return Math.abs(hist[hi].t - t) < Math.abs(hist[lo].t - t) ? hist[hi] : hist[lo];
+}
+
+function showInspector(g, h) {
+  const d = gameDate(h.t, startUtc);
+  const both = (f) => [f(0), f(1)];
+  const rows = advanced ? [
+    ['External', ...both((i) => cap(h.deployed[i]))],
+    ['Internal', ...both((i) => cap(h.internal[i]))],
+    ['Latent', ...both((i) => cap(h.latent[i]))],
+    ['True safety frontier', ...both((i) => cap(h.frontier[i]))],
+    ['Danger zone (estimate)', ...both((i) => `${cap(h.centers[i] - g.halfWidth)}–${cap(h.centers[i] + g.halfWidth)}`)],
+    ['Funding (capability)', ...both((i) => `${Math.round(100 * h.research[i])}%`)],
+    ['AI research speed-up', ...both((i) => `×${h.multiplier[i] < 1000 ? h.multiplier[i].toPrecision(3) : compact.format(h.multiplier[i])}`)],
+    ['True risk / month', ...both((i) => pctText(monthlyRisk(h.labRates[i])))],
+    ['Cash', ...both((i) => money(h.cash[i]))],
+  ] : [
+    ['Deployed', ...both((i) => cap(h.deployed[i]))],
+    ['Cash', ...both((i) => money(h.cash[i]))],
+    ['True frontier (shared)', cap(h.frontier[0]), ''],
+    ['Your danger zone', `${cap(h.center - g.halfWidth)}–${cap(h.center + g.halfWidth)}`, ''],
+    ['True risk / month', pctText(monthlyRisk(h.labRates[0])), ''],
+  ];
+  const el = $('#inspect');
+  el.replaceChildren();
+  const title = document.createElement('div');
+  title.className = 'inspect-title';
+  title.textContent = `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
+  const table = document.createElement('table');
+  for (const [i, cells] of [['', 'You', 'Competitor'], ...rows].entries()) {
+    const tr = table.insertRow();
+    for (const text of cells) {
+      const cell = document.createElement(i === 0 ? 'th' : 'td');
+      cell.textContent = text;
+      tr.append(cell);
+    }
+  }
+  const note = document.createElement('div');
+  note.className = 'inspect-note';
+  note.textContent = `You saw ${pctText(h.seenRisk)}/month expected risk (${advanced ? 'your lab only' : 'shared'}). `
+    + `Cumulative risk so far: ${pctText(-Math.expm1(-h.hazard))}.`;
+  el.append(title, table, note);
+  el.hidden = false;
+  const flip = hoverX > W / 2;
+  el.style.left = flip ? '' : `${hoverX + 14}px`;
+  el.style.right = flip ? `${W - hoverX + 14}px` : '';
+}
+
+const reviewing = () => !isLive(game) && $('#result').hidden;
+let drag = null;
+canvas.addEventListener('wheel', (e) => {
+  if (!reviewing() || !layout) return;
+  e.preventDefault();
+  const full = Math.max(game.t, 1);
+  const [start, end] = [layout.start, layout.end];
+  const at = start + ((e.offsetX - layout.left) / layout.width) * (end - start);
+  const span = Math.min(full, Math.max(0.5, (end - start) * Math.exp(e.deltaY * 0.0015)));
+  const newStart = Math.min(Math.max(0, at - ((at - start) * span) / (end - start)), full - span);
+  view = span >= full ? null : { start: newStart, end: newStart + span };
+}, { passive: false });
+canvas.addEventListener('pointerdown', (e) => {
+  if (!reviewing() || !view) return;
+  drag = { x: e.offsetX, view: { ...view } };
+  canvas.setPointerCapture(e.pointerId);
+});
+canvas.addEventListener('pointermove', (e) => {
+  if (!reviewing()) return;
+  hoverX = e.offsetX;
+  if (!drag) return;
+  const span = drag.view.end - drag.view.start;
+  const shift = (-(e.offsetX - drag.x) / layout.width) * span;
+  const start = Math.min(Math.max(0, drag.view.start + shift), Math.max(game.t, 1) - span);
+  view = { start, end: start + span };
+});
+canvas.addEventListener('pointerup', () => (drag = null));
+canvas.addEventListener('pointerleave', () => {
+  hoverX = null;
+  $('#inspect').hidden = true;
+});
+canvas.addEventListener('dblclick', () => (view = null));
 
 // ---- input + loop ----
 

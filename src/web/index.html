@@ -32,6 +32,7 @@
 
     <section class="chart-wrap">
       <canvas id="chart" aria-label="Deployed models, danger zone, and your pending research"></canvas>
+      <div id="inspect" hidden></div>
       <section id="result" hidden>
         <h2 id="result-title"></h2>
         <p id="result-verdict"></p>
@@ -53,6 +54,7 @@
         <span class="advanced-only"><i class="key latent"></i>Latent</span>
         <span><i class="key truth"></i>Your true frontier (revealed after)</span>
         <span class="advanced-only"><i class="key truth them"></i>Competitor's true frontier (revealed after)</span>
+        <span class="advanced-only"><i class="key zone them"></i>Competitor's zone (revealed after)</span>
       </div>
       <p id="takeoff" class="advanced-only"></p>
       <label class="control advanced-only"><span id="research-lo"></span><input id="research" type="range" min="0" max="100" step="1" value="70" data-default="70" aria-label="Research funding: safety to capabilities" /><span id="research-hi"></span></label>

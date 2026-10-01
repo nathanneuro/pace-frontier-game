@@ -19,6 +19,9 @@ URL parameters: `?w=3` danger-zone half-width (`w=0` = original game), `?seed=12
 `?mode=advanced` advanced mode.
 
 Each game waits for Start (click or Space).
+After a game, close the results to explore the run: scroll to zoom, drag to pan, double-click to
+reset. Hover to compare what you saw (your zone, expected risk) with the truth (both labs' frontiers,
+zones, hidden capability, true risk per lab). A strip along the bottom shows where true risk built up.
 
 - **Classic**: hold Space (or click and hold) to accelerate.
 - **Advanced**: three sliders, capability-vs-safety funding, internal deployment, and external
