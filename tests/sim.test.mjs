@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   SIM, createGame, tick, isLive, bandCenter, beliefWeights, expectedMonthlyRisk,
-  monthlyRisk, hazardRate, riskCapability, playerRiskCapability, labRisk, aiResearchShare, TAKEOFF, stoppingDistance, frontier, labHazardRate, totalHazardRate, setControls, ADVANCED, mixSeed,
+  monthlyRisk, hazardRate, riskCapability, playerRiskCapability, labRisk, aiResearchShare, TAKEOFF, stoppingDistance, researchMultiplier, safetyMultiplier, frontier, labHazardRate, totalHazardRate, setControls, ADVANCED, mixSeed,
 } from '../src/web/sim.js';
 
 function play(g, policy) {
@@ -216,4 +216,15 @@ test('advanced takeoff: AI share is half at human level, dominant above, and spe
   assert.ok(Math.abs(top(H + 4 * S) / top(H + 3 * S) - (1 + Math.E ** 4) / (1 + Math.E ** 3)) < 1e-9);
   assert.ok(Math.abs(top(H + 5 * S) / top(H + 4 * S) - (1 + Math.E ** 5) / (1 + Math.E ** 4)) < 1e-9);
   assert.equal(top(H + 10 * S), TAKEOFF.maxSpeed);
+});
+
+test('advanced: AI boosts safety research, but less than capability research', () => {
+  const g = createGame(1, { advanced: true });
+  const lab = g.labs[0];
+  for (const internal of [0, 20, 40, 60, 80]) {
+    lab.internal = internal;
+    const [cap, safe] = [researchMultiplier(g, lab), safetyMultiplier(g, lab)];
+    assert.ok(safe >= 1 && safe <= cap);
+    assert.ok(Math.abs((safe - 1) - ADVANCED.safetyAiEfficiency * (cap - 1)) < 1e-12);
+  }
 });

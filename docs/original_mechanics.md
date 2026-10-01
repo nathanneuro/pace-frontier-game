@@ -74,9 +74,11 @@ other things endogenous.
    logistic in `I`: ~1% at the start, 50% at human level (`I = 40`), >95% above `I ≈ 64`. Beyond that,
    speed grows exponentially in capability, i.e. hyperbolically in time: a finite-time takeoff. The
    cap of 400 units/s (×267) exists only for numerical stability. On default settings (70%
-   capability, full deployment), takeoff happens around t ≈ 45 s. The remaining `1 − r` funds
-   safety, which raises **your own** true frontier by `(1 − r) · 1.2 · (top / 1.5)` per second.
-   Self-improvement speeds safety research just as it speeds capability research.
+   capability, full deployment), takeoff happens around t ≈ 45 s. The advanced chart uses a log scale
+   (`log(1 + v)`) so takeoff doesn't flatten the early game. The remaining `1 − r` funds
+   safety, which raises **your own** true frontier by `(1 − r) · 1.2 · m_s` per second. Here
+   `m_s = 1 + 0.75 · (top / 1.5 − 1)`: AI researchers speed safety research too, but at 75% of their
+   effect on capability research (`ADVANCED.safetyAiEfficiency`).
 2. *Internal*: fraction of available (lagged) latent capability run inside the lab.
 3. *External*: fraction of internal capability sold to customers. Profit depends on the two labs'
    external capability. External is the only tier the rival observes.

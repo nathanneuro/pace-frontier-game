@@ -103,6 +103,8 @@ export const ADVANCED = Object.freeze({
   // Own-frontier speed from putting all research funding into safety, before the self-improvement
   // multiplier (internal capability speeds safety research exactly as it speeds capability research).
   safetyResearchSpeed: 1.2,
+  // AI researchers are this efficient at safety research relative to capability research.
+  safetyAiEfficiency: 0.75,
   // Each lab's estimate of its frontier is truth + a hidden offset b. b mean-reverts
   // (Ornstein-Uhlenbeck) and is kicked up by false breakthroughs. Real breakthroughs raise the lab's
   // true frontier (and so its estimate). A lab sees the jump but not whether it was real.
@@ -228,6 +230,9 @@ function topSpeed(g, lab) {
 
 // Research speed relative to human researchers alone (self-improvement multiplier).
 export const researchMultiplier = (g, lab) => topSpeed(g, lab) / SPEED.initialSpeed;
+
+// Safety research gets the same AI researchers, but at safetyAiEfficiency of their capability effect.
+export const safetyMultiplier = (g, lab) => 1 + ADVANCED.safetyAiEfficiency * (researchMultiplier(g, lab) - 1);
 
 export function stoppingDistance(g, lab) {
   return lab.speed ** 2 / (2 * SIM.deceleration * topSpeed(g, lab));
@@ -426,7 +431,7 @@ function advanceWorld(g, dt) {
   let seen = 0; // jump in the player's estimate
   g.labs.forEach((lab, i) => {
     if (g.phase === 'running') {
-      lab.ownSafety += (1 - lab.research) * A.safetyResearchSpeed * researchMultiplier(g, lab) * dt;
+      lab.ownSafety += (1 - lab.research) * A.safetyResearchSpeed * safetyMultiplier(g, lab) * dt;
     }
     lab.bias = driftOffset(lab.bias, g.proc, dt, rng);
     for (const real of [true, false]) {

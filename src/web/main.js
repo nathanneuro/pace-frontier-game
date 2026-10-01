@@ -182,7 +182,9 @@ function drawChart() {
   const pad = { left: 16, right: 16, top: 12, bottom: 24 };
   const { start, end, lo, hi } = viewport(g);
   const X = (t) => pad.left + ((t - start) / (end - start)) * (W - pad.left - pad.right);
-  const Y = (v) => H - pad.bottom - ((v - lo) / (hi - lo)) * (H - pad.top - pad.bottom);
+  // Advanced mode plots capability on a log scale (log(1 + v)) so takeoff doesn't flatten the early game.
+  const f = advanced ? (v) => Math.log1p(Math.max(0, v)) : (v) => v;
+  const Y = (v) => H - pad.bottom - ((f(v) - f(lo)) / (f(hi) - f(lo))) * (H - pad.top - pad.bottom);
   const hist = [...g.history];
   if (hist.at(-1).t < g.t) hist.push({ t: g.t, frontier: g.labs.map((_, i) => frontier(g, i)), center: bandCenter(g), deployed: g.labs.map((l) => l.deployed), internal: g.labs.map((l) => l.internal), latent: g.labs.map((l) => l.position) });
 
@@ -195,15 +197,23 @@ function drawChart() {
     ctx.fillRect(X(g.t), 0, W - X(g.t), H);
   }
 
+  // Gridlines: even steps on the linear chart; 1-2-5 steps, labelled, on the log chart.
   const step = 4 * 2 ** Math.max(0, Math.ceil(Math.log2((hi - lo) / 6 / 4)));
+  const gridValues = advanced
+    ? [1, 2, 5].flatMap((m) => Array.from({ length: 8 }, (_, k) => m * 10 ** k)).filter((v) => v >= lo && v <= hi)
+    : Array.from({ length: Math.floor(hi / step) - Math.ceil(lo / step) + 1 }, (_, k) => (Math.ceil(lo / step) + k) * step);
   ctx.strokeStyle = css('--border');
   ctx.lineWidth = 1;
   ctx.beginPath();
-  for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) {
+  for (const v of gridValues) {
     ctx.moveTo(0, Y(v));
     ctx.lineTo(W, Y(v));
   }
   ctx.stroke();
+  if (advanced) {
+    ctx.fillStyle = css('--muted');
+    for (const v of gridValues) ctx.fillText(String(v), 4, Y(v) - 3);
+  }
 
   // Month ticks on the x axis.
   ctx.fillStyle = css('--muted');
