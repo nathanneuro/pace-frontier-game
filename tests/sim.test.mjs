@@ -215,7 +215,16 @@ test('advanced takeoff: AI share is half at human level, dominant above, and spe
   // Above human level each extra `scale` of capability multiplies research speed by ~e.
   assert.ok(Math.abs(top(H + 4 * S) / top(H + 3 * S) - (1 + Math.E ** 4) / (1 + Math.E ** 3)) < 1e-9);
   assert.ok(Math.abs(top(H + 5 * S) / top(H + 4 * S) - (1 + Math.E ** 5) / (1 + Math.E ** 4)) < 1e-9);
-  assert.equal(top(H + 10 * S), 1.5 * TAKEOFF.maxMultiplier);
+  // Diminishing returns: unchanged up to the knee, then bends smoothly toward the asymptote.
+  const { diminishingReturnsAt: knee, maxMultiplier: max } = TAKEOFF;
+  const kneeAt = H + S * Math.log(knee - 1);
+  assert.ok(Math.abs(top(kneeAt - 0.5) / 1.5 - (1 + Math.exp((kneeAt - 0.5 - H) / S))) < 1e-6);
+  const slope = (x) => (top(x + 1e-4) - top(x - 1e-4)) / 2e-4;
+  assert.ok(Math.abs(slope(kneeAt - 1e-3) / slope(kneeAt + 1e-3) - 1) < 1e-3, 'smooth at the knee');
+  const late = [H + 10 * S, H + 11 * S, H + 12 * S].map((x) => top(x) / 1.5);
+  assert.ok(late.every((m, k) => m < max && (!k || m > late[k - 1])), `late multipliers ${late}`);
+  assert.ok(late[0] < 0.8 * max && late.at(-1) > 0.999 * max, `late multipliers ${late}`);
+  assert.ok(top(1e6) / 1.5 <= max);
 });
 
 test('advanced: AI boosts safety research, but less than capability research', () => {

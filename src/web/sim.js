@@ -210,7 +210,9 @@ function advanceSafety(g, dt) {
 // human * exp((internal - humanLevel) / scale). So the AI share of research is a logistic in
 // internally deployed capability (half at human level, ~95% three scales above), and total speed
 // then grows exponentially in capability, which means hyperbolically in time (finite-time
-// blow-up). maxMultiplier (research speed relative to humans alone) only keeps the integrator finite.
+// blow-up). Past diminishingReturnsAt the returns to research diminish: the multiplier (research
+// speed relative to humans alone) bends away smoothly (same slope at the knee) and approaches
+// maxMultiplier without reaching it.
 export const TAKEOFF = Object.freeze({
   // Research output lands after a lag: researchLagMonths divided by the lab's current AI research
   // multiplier (AI speeds its own research cycle: 3 months at the start, under a day past ~x90).
@@ -223,6 +225,7 @@ export const TAKEOFF = Object.freeze({
   safetyLagExponent: 0.75,
   humanLevel: 24,
   scale: 8,
+  diminishingReturnsAt: 5000,
   maxMultiplier: 20000,
 });
 
@@ -255,7 +258,9 @@ export const committedLatent = (lab) => lab.position + inFlight(lab.capabilityPi
 
 // Research speed relative to human researchers alone, given the internal capability doing research.
 function takeoffMultiplier(capability) {
-  return Math.min(TAKEOFF.maxMultiplier, 1 + Math.exp((Math.max(0, capability) - TAKEOFF.humanLevel) / TAKEOFF.scale));
+  const raw = 1 + Math.exp((Math.max(0, capability) - TAKEOFF.humanLevel) / TAKEOFF.scale);
+  const { diminishingReturnsAt: knee, maxMultiplier: max } = TAKEOFF;
+  return raw <= knee ? raw : knee - (max - knee) * Math.expm1(-(raw - knee) / (max - knee));
 }
 
 // Share of a lab's capability research done by its own AI (advanced mode).

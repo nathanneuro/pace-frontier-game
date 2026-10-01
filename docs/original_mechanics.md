@@ -78,7 +78,9 @@ other things endogenous.
    in `sim.js`), where `I` is current internally deployed capability. The AI share of research is
    therefore logistic in `I`: ~5% at the start, 50% at human level (`I = 24`), >95% above `I ≈ 48`.
    Beyond that, speed grows exponentially in capability, i.e. hyperbolically in time: a finite-time
-   takeoff. The ×20,000 cap on research speed exists only to keep the numbers finite.
+   takeoff, until returns to research diminish: past ×5,000 the multiplier bends away smoothly
+   (`5000 + 15000 · (1 − exp(−(raw − 5000)/15000))`, same slope at the knee) and approaches ×20,000
+   without reaching it (`TAKEOFF.diminishingReturnsAt`, `maxMultiplier`).
    **Research lag:** research *power* is current, so rolling back internal deployment cuts it
    immediately. Research *output* lands after `3 months / multiplier` for capability (into latent,
    then the 2-week deployment lag). Safety output lands after `1.15 · 3 months / multiplier^0.75`
