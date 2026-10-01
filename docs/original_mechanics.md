@@ -69,8 +69,12 @@ other things endogenous.
 **Controls** (no accelerator; the button only starts the game):
 
 1. *Research*: capability share `r` of research funding. Latent research speed approaches
-   `r · top`, where top speed rises with **internally deployed** capability (sub-takeoff RSI; same
-   bounded curve as the original, which used research position). The remaining `1 − r` funds
+   `r · top`. Top speed = human researchers (1.5) + AI researchers `1.5 · exp((I − 40)/8)`, where `I` is
+   **internally deployed** capability (`TAKEOFF` in `sim.js`). The AI share of research is therefore
+   logistic in `I`: ~1% at the start, 50% at human level (`I = 40`), >95% above `I ≈ 64`. Beyond that,
+   speed grows exponentially in capability, i.e. hyperbolically in time: a finite-time takeoff. The
+   cap of 400 units/s (×267) exists only for numerical stability. On default settings (70%
+   capability, full deployment), takeoff happens around t ≈ 45 s. The remaining `1 − r` funds
    safety, which raises **your own** true frontier by `(1 − r) · 1.2 · (top / 1.5)` per second.
    Self-improvement speeds safety research just as it speeds capability research.
 2. *Internal*: fraction of available (lagged) latent capability run inside the lab.

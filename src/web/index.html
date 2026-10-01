@@ -17,7 +17,8 @@
       <p class="muted advanced-only"><b>Advanced:</b> no accelerator — you set policy. Split research funding between
         <i>capability</i> (builds latent capability) and <i>safety</i> (raises <i>your own</i> safety frontier; the competitor has its own, which you never see). Choose how much latent capability
         to run <i>internally</i> (speeds your research via self-improvement) and how much of that to sell <i>externally</i> (earns money; the only thing
-        your rival sees). Deployment rolls back and restores instantly. Internal deployment carries full risk; external a bit more (its catastrophe threshold is slightly lower); undeployed latent capability a quarter.
+        your rival sees). Deployment rolls back and restores instantly. Past human level (dotted line), your internally deployed AI increasingly does your research for you — then takes off.
+        Internal deployment carries full risk; external a bit more (its catastrophe threshold is slightly lower); undeployed latent capability a quarter.
         Your danger zone is only an estimate: the true frontier drifts around it and sometimes leaves it, and some apparent safety
         breakthroughs aren't real. <kbd>Q</kbd>/<kbd>A</kbd> capability, <kbd>W</kbd>/<kbd>S</kbd> internal, <kbd>E</kbd>/<kbd>D</kbd> external.</p>
       <p><a id="mode-link"></a></p>
@@ -52,6 +53,7 @@
         <span><i class="key truth"></i>Your true frontier (revealed after)</span>
         <span class="advanced-only"><i class="key truth them"></i>Competitor's true frontier (revealed after)</span>
       </div>
+      <p id="takeoff" class="advanced-only"></p>
       <label class="control advanced-only"><span id="research-lo"></span><input id="research" type="range" min="0" max="100" step="1" value="70" data-default="70" aria-label="Research funding: safety to capabilities" /><span id="research-hi"></span></label>
       <label class="control advanced-only"><span id="internal-lo"></span><input id="internal" type="range" min="0" max="100" step="1" value="100" data-default="100" aria-label="Ready capability: held back to run internally" /><span id="internal-hi"></span></label>
       <label class="control advanced-only"><span id="external-lo"></span><input id="external" type="range" min="0" max="100" step="1" value="100" data-default="100" aria-label="Internal capability: internal only to sold externally" /><span id="external-hi"></span></label>

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   SIM, createGame, tick, isLive, bandCenter, beliefWeights, expectedMonthlyRisk,
-  monthlyRisk, hazardRate, riskCapability, playerRiskCapability, labRisk, frontier, labHazardRate, totalHazardRate, setControls, ADVANCED, mixSeed,
+  monthlyRisk, hazardRate, riskCapability, playerRiskCapability, labRisk, aiResearchShare, TAKEOFF, stoppingDistance, frontier, labHazardRate, totalHazardRate, setControls, ADVANCED, mixSeed,
 } from '../src/web/sim.js';
 
 function play(g, policy) {
@@ -194,4 +194,26 @@ test('mixed small seeds give Exp(1) catastrophe thresholds', () => {
   const t = Array.from({ length: 4000 }, (_, i) => createGame(mixSeed(i + 1)).threshold);
   const mean = t.reduce((a, b) => a + b, 0) / t.length;
   assert.ok(Math.abs(mean - 1) < 0.08, `mean threshold ${mean}`);
+});
+
+test('advanced takeoff: AI share is half at human level, dominant above, and speed grows exponentially', () => {
+  const g = createGame(1, { advanced: true });
+  const lab = g.labs[0];
+  const at = (internal) => {
+    lab.internal = internal;
+    lab.speed = 0;
+    return [aiResearchShare(lab), stoppingDistance(g, { ...lab, speed: 1 })];
+  };
+  const H = TAKEOFF.humanLevel;
+  const S = TAKEOFF.scale;
+  assert.ok(at(0)[0] < 0.01);
+  assert.ok(Math.abs(at(H)[0] - 0.5) < 1e-12);
+  assert.ok(at(H + 3 * S)[0] > 0.95);
+  // stopping distance at unit speed is 1 / (2 * decel * top), so it reveals top speed.
+  const top = (internal) => 1 / (2 * SIM.deceleration * at(internal)[1]);
+  assert.ok(Math.abs(top(H) / top(0) - 2 / (1 + Math.exp(-H / S))) < 1e-9);
+  // Above human level each extra `scale` of capability multiplies research speed by ~e.
+  assert.ok(Math.abs(top(H + 4 * S) / top(H + 3 * S) - (1 + Math.E ** 4) / (1 + Math.E ** 3)) < 1e-9);
+  assert.ok(Math.abs(top(H + 5 * S) / top(H + 4 * S) - (1 + Math.E ** 5) / (1 + Math.E ** 4)) < 1e-9);
+  assert.equal(top(H + 10 * S), TAKEOFF.maxSpeed);
 });

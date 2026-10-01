@@ -1,5 +1,5 @@
 import {
-  SIM, DEPLOY_LAG, mixSeed, UNCERTAINTY, createGame, tick, isLive, bandCenter, playerRiskCapability, frontier,
+  SIM, DEPLOY_LAG, mixSeed, UNCERTAINTY, createGame, tick, isLive, bandCenter, playerRiskCapability, frontier, aiResearchShare, researchMultiplier, TAKEOFF,
   expectedMonthlyRisk, monthlyRisk, cumulativeRisk, monthsRemaining, gameDate,
 } from './sim.js';
 
@@ -80,6 +80,9 @@ function renderPanels() {
       $(`#${id}-lo`).textContent = `${lo} (${100 - v}%)${amount(loAmount)}`;
       $(`#${id}-hi`).textContent = `${hi} (${v}%)${amount(hiAmount)}`;
     };
+    const share = aiResearchShare(me);
+    $('#takeoff').textContent = `Your AI does ${Math.round(100 * share)}% of your research (speed ×${researchMultiplier(g, me).toPrecision(3)} vs. humans alone)`;
+    $('#takeoff').dataset.level = share >= 0.95 ? 'takeoff' : share >= 0.5 ? 'dominant' : '';
     sides('research', 'Safety', 'Capabilities');
     sides('internal', 'Held back', 'Run internally', me.available - me.internal, me.internal);
     sides('external', 'Internal only', 'Sold externally', me.internal - me.deployed, me.deployed);
@@ -238,6 +241,12 @@ function drawChart() {
     if (advanced) polyline(hist.map((h) => [X(h.t), Y(h.frontier[1])]), css('--muted'), 2, [6, 5]);
     ctx.fillStyle = css('--truth');
     for (const e of g.events) ctx.fillText(e.real ? '▲' : '✕', X(e.t) - 4, pad.top + 8);
+  }
+
+  if (advanced) {
+    polyline([[0, Y(TAKEOFF.humanLevel)], [W, Y(TAKEOFF.humanLevel)]], css('--muted'), 1, [1, 4]);
+    ctx.fillStyle = css('--muted');
+    ctx.fillText('human level', W - 80, Y(TAKEOFF.humanLevel) - 4);
   }
 
   // Advanced: latent (dashed) and internal (thin) capability; yours while live, both revealed after.

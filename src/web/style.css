@@ -75,3 +75,6 @@ header a { color: inherit; }
 .control > span:first-child { text-align: right; }
 .key.latent { border-top: 2px dashed var(--you); }
 .key.internal { border-top: 1.5px solid var(--you); }
+#takeoff { grid-column: 1 / -1; margin: 0; color: var(--muted); }
+#takeoff[data-level="dominant"] { color: #d35400; }
+#takeoff[data-level="takeoff"] { color: #c0392b; font-weight: 700; }

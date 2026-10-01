@@ -195,16 +195,39 @@ function advanceSafety(g, dt) {
   m.speed += (m.target - m.speed) * blend;
 }
 
-// Top research speed rises with capability (recursive self-improvement past rsiThreshold).
-// Classic: driven by latent research position. Advanced: driven by internally deployed capability.
+// Advanced-mode takeoff: research = human researchers + AI researchers. The AI contribution is
+// human * exp((internal - humanLevel) / scale). So the AI share of research is a logistic in
+// internally deployed capability (half at human level, ~95% three scales above), and total speed
+// then grows exponentially in capability, which means hyperbolically in time (finite-time
+// blow-up). maxSpeed only keeps the integrator stable.
+export const TAKEOFF = Object.freeze({
+  humanLevel: 40,
+  scale: 8,
+  maxSpeed: 400,
+});
+
+// Share of a lab's research done by its own AI (advanced mode).
+export function aiResearchShare(lab) {
+  return 1 / (1 + Math.exp(-(Math.max(0, lab.internal) - TAKEOFF.humanLevel) / TAKEOFF.scale));
+}
+
+// Top research speed. Classic: the original's bounded recursive self-improvement, driven by research
+// position. Advanced: takeoff driven by internally deployed capability.
 function topSpeed(g, lab) {
-  const x = Math.max(0, g.advanced ? lab.internal : lab.position);
+  if (g.advanced) {
+    const ai = Math.exp((Math.max(0, lab.internal) - TAKEOFF.humanLevel) / TAKEOFF.scale);
+    return Math.min(TAKEOFF.maxSpeed, SPEED.initialSpeed * (1 + ai));
+  }
+  const x = Math.max(0, lab.position);
   const early = -Math.expm1(-x / SPEED.earlyRsiScale);
   const r = Math.max(0, x - SPEED.rsiThreshold) / SPEED.rsiScale;
   const late = -Math.expm1(-(r ** 2));
   const share = SPEED.earlyRsiShare * early + (1 - SPEED.earlyRsiShare) * late;
   return SPEED.initialSpeed + (SPEED.maximumSpeed - SPEED.initialSpeed) * share;
 }
+
+// Research speed relative to human researchers alone (self-improvement multiplier).
+export const researchMultiplier = (g, lab) => topSpeed(g, lab) / SPEED.initialSpeed;
 
 export function stoppingDistance(g, lab) {
   return lab.speed ** 2 / (2 * SIM.deceleration * topSpeed(g, lab));
@@ -403,8 +426,7 @@ function advanceWorld(g, dt) {
   let seen = 0; // jump in the player's estimate
   g.labs.forEach((lab, i) => {
     if (g.phase === 'running') {
-      const selfImprovement = topSpeed(g, lab) / SPEED.initialSpeed;
-      lab.ownSafety += (1 - lab.research) * A.safetyResearchSpeed * selfImprovement * dt;
+      lab.ownSafety += (1 - lab.research) * A.safetyResearchSpeed * researchMultiplier(g, lab) * dt;
     }
     lab.bias = driftOffset(lab.bias, g.proc, dt, rng);
     for (const real of [true, false]) {
