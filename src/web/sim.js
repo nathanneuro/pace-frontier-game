@@ -138,6 +138,14 @@ export const ADVANCED = Object.freeze({
   falseBreakthroughRate: 1 / 16,
   breakthroughMin: 0.05,
   breakthroughMax: 0.2,
+  // Each apparent breakthrough is re-examined at claimResolutionRate per second (~2.5 months on
+  // average). A false one is then exposed with probability exposedFalseShare; a real one is wrongly
+  // debunked with probability wrongRetractionShare. Either way the lab's estimate drops back by the
+  // original jump (its true frontier never falls), so the zone can drop suddenly, and the lab can't
+  // tell a correct retraction from a wrong one. Otherwise the claim is settled for good.
+  claimResolutionRate: 1 / 10,
+  exposedFalseShare: 0.6,
+  wrongRetractionShare: 0.15,
   // Particles in the player's belief over its own offset.
   particles: 256,
   // Simple mode's pedal: holding it moves the hidden funding split from all-safety to
@@ -400,11 +408,17 @@ function offsetProcess(halfWidth) {
   const jumps = Array.from({ length: n }, (_, k) => Math.log1p(A.breakthroughMin + ((k + 0.5) / n) * (A.breakthroughMax - A.breakthroughMin)));
   const meanJump = jumps.reduce((a, j) => a + j, 0) / n;
   const meanSqJump = jumps.reduce((a, j) => a + j * j, 0) / n;
-  const jumpVariance = (falseRate * meanSqJump) / (2 * A.biasReversion);
+  // Offset jumps: +J per false claim, -J per exposed false claim and per wrongly debunked real one.
+  const realRate = halfWidth > 0 ? A.realBreakthroughRate : 0;
+  const upRate = falseRate;
+  const downRate = falseRate * A.exposedFalseShare + realRate * A.wrongRetractionShare;
+  const jumpVariance = ((upRate + downRate) * meanSqJump) / (2 * A.biasReversion);
   const spread = halfWidth / A.zoneSigmas;
   return {
     falseRate,
-    mean: (-falseRate * meanJump) / A.biasReversion,
+    realRate,
+    // Stationary mean of the offset is mean + (net jump flux) / reversion; this makes it zero.
+    mean: (-(upRate - downRate) * meanJump) / A.biasReversion,
     diffusion: Math.sqrt(Math.max(0, spread ** 2 - jumpVariance)),
     spread,
     realGivenJump: A.realBreakthroughRate / (A.realBreakthroughRate + falseRate),
@@ -481,7 +495,7 @@ export function createGame(seed = 1, {
     // research = capability share of research funding (advanced). Classic: all fractions are 1.
     labs: [0, 1].map(() => ({
       position: 0, available: 0, internalFraction: 1, externalFraction: 1, internal: 0, deployed: 0, deployments: [],
-      research: advanced ? ADVANCED.startingResearch : 1, safetyFunding: 0, ownSafety: 0, capabilityPipeline: [], safetyPipeline: [], accumulated: 0, watch: null, bias: startBias(), speed: 0, held: false, cash: 0, profit: PROFIT.baseProfit,
+      research: advanced ? ADVANCED.startingResearch : 1, safetyFunding: 0, ownSafety: 0, capabilityPipeline: [], safetyPipeline: [], accumulated: 0, watch: null, claims: [], bias: startBias(), speed: 0, held: false, cash: 0, profit: PROFIT.baseProfit,
     })),
     history: [],
   };
@@ -560,6 +574,7 @@ function advanceWorld(g, dt) {
   const rng = g.worldRng;
   const jump = () => uniform(rng, A.breakthroughMin, A.breakthroughMax);
   let seen = 0; // log of the jump factor in the player's estimate
+  let dropped = 0; // log of the drop factor from retractions
   g.labs.forEach((lab, i) => {
     if (g.phase === 'running') {
       const lag = researchLag(researchMultiplier(g, lab), true);
@@ -570,18 +585,32 @@ function advanceWorld(g, dt) {
     for (const real of [true, false]) {
       if (!(random(rng) < (real ? A.realBreakthroughRate : g.proc.falseRate) * dt)) continue;
       const size = jump();
-      if (real) lab.ownSafety += size * frontier(g, i);
-      else lab.bias += Math.log1p(size);
+      const gain = real ? size * frontier(g, i) : 0;
+      lab.ownSafety += gain;
+      if (!real) lab.bias += Math.log1p(size);
+      lab.claims.push({ t: g.t, size, real });
       if (i === 0) {
         seen += Math.log1p(size);
-        g.events.push({ t: g.t, size, real });
+        g.events.push({ t: g.t, size, real, gain });
+      }
+    }
+    // Re-examination of earlier claims: settled, or retracted (estimate drops back; truth unchanged).
+    for (let k = lab.claims.length - 1; k >= 0; k--) {
+      if (!(random(rng) < A.claimResolutionRate * dt)) continue;
+      const claim = lab.claims.splice(k, 1)[0];
+      if (!(random(rng) < (claim.real ? A.wrongRetractionShare : A.exposedFalseShare))) continue;
+      lab.bias -= Math.log1p(claim.size);
+      if (i === 0) {
+        dropped += Math.log1p(claim.size);
+        g.events.push({ t: g.t, size: claim.size, real: claim.real, retracted: true });
       }
     }
   });
   // Player's belief: same offset dynamics; a seen jump was real (offset unchanged) or not (offset += jump).
+  // A retraction lowers the estimate while the truth stays put, so every particle's offset drops by it.
   const bel = g.belief;
   bel.offsets = bel.offsets.map((b) => {
-    const moved = driftOffset(b, g.proc, dt, g.beliefRng);
+    const moved = driftOffset(b, g.proc, dt, g.beliefRng) - dropped;
     return seen && random(g.beliefRng) >= g.proc.realGivenJump ? moved + seen : moved;
   });
 }

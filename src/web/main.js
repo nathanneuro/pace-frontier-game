@@ -166,14 +166,18 @@ function showResult() {
   $('#result-risk').textContent = `Total true catastrophe risk this game: ${pctText(cumulativeRisk(g))}.`
     + (advanced ? ' Each lab\'s meter estimated only its own risk; the true total is both combined.' : '');
   const b = g.labs[0].bias;
-  const real = g.events.filter((e) => e.real).length;
+  const claims = g.events.filter((e) => !e.retracted);
+  const real = claims.filter((e) => e.real).length;
+  const retracted = g.events.filter((e) => e.retracted);
+  const wrong = retracted.filter((e) => e.real).length;
   const off = frontier(g, 0) / bandCenter(g, 0) - 1; // advanced: true frontier relative to the zone center
   const w = zoneHalfWidth(g);
   $('#result-frontier').textContent = g.halfWidth === 0
     ? 'The frontier was shown exactly this game (w=0).'
     : advanced
       ? `The true frontier ended ${Math.round(100 * Math.abs(off))}% ${off < 0 ? 'below' : 'above'} the center of your danger zone (zone at the end: ${Math.round(100 * Math.expm1(-w))}% to +${Math.round(100 * Math.expm1(w))}%).`
-        + ` ${real} of ${g.events.length} apparent safety breakthroughs were real (▲ real, ✕ false on the chart).`
+        + ` ${real} of ${claims.length} apparent safety breakthroughs were real (▲ real, ✕ false on the chart).`
+        + ` ${retracted.length} were later debunked, dropping your zone: ${retracted.length - wrong} correctly (▽), ${wrong} wrongly (▼).`
       : `The true frontier ended ${Math.abs(b).toFixed(2)} ${b > 0 ? 'below' : 'above'} the center of your danger zone (zone half-width ${g.halfWidth}).`;
   $('#result').hidden = false;
 }
@@ -321,7 +325,8 @@ function drawChart() {
     polyline(hist.map((h) => [X(h.t), Y(h.frontier[0])]), css('--truth'), 2, [6, 5]);
     if (advanced) polyline(hist.map((h) => [X(h.t), Y(h.frontier[1])]), css('--muted'), 2, [6, 5]);
     ctx.fillStyle = css('--truth');
-    for (const e of g.events) ctx.fillText(e.real ? '▲' : '✕', X(e.t) - 4, pad.top + 8);
+    // Breakthroughs: ▲ real, ✕ false. Retractions (zone drops): ▽ false one exposed, ▼ real one wrongly debunked.
+    for (const e of g.events) ctx.fillText(e.retracted ? (e.real ? '▼' : '▽') : e.real ? '▲' : '✕', X(e.t) - 4, pad.top + (e.retracted ? 20 : 8));
   }
 
   if (advanced) {

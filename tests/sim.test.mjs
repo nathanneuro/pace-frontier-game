@@ -110,7 +110,7 @@ test('advanced: safety funding raises only your own frontier', () => {
   const [funded, unfunded] = [run(0), run(1)];
   assert.ok(frontier(funded, 0) > frontier(unfunded, 0) + 20);
   // With no safety funding, your own frontier gains only background drift and real breakthroughs.
-  const breakthroughs = unfunded.events.filter((e) => e.real).reduce((a, e) => a + e.size, 0);
+  const breakthroughs = unfunded.events.filter((e) => !e.retracted).reduce((a, e) => a + e.gain, 0);
   assert.ok(Math.abs(unfunded.labs[0].ownSafety - breakthroughs) < 1e-9);
 });
 
@@ -384,4 +384,27 @@ test('bot: stays ahead of a careful player and anticipates a fast-growing one', 
   const [still, growing] = [target(0), target(1)];
   assert.ok(still > 50 * 1.05 && still < 60, `target vs a still rival ${still}`);
   assert.ok(growing > still + 10, `target vs a growing rival ${growing}`);
+});
+
+test('advanced: re-examined breakthroughs can drop the estimate suddenly; truth never falls', () => {
+  let retractions = 0;
+  let wrong = 0;
+  for (let seed = 1; seed <= 20; seed++) {
+    const g = advancedGame(seed);
+    let center = bandCenter(g, 0);
+    let truth = frontier(g, 0);
+    while (isLive(g)) {
+      const n = g.events.length;
+      tick(g, { research: 0.7, internal: 1, external: 1 });
+      assert.ok(frontier(g, 0) >= truth);
+      for (const e of g.events.slice(n).filter((x) => x.retracted)) {
+        retractions++;
+        if (e.real) wrong++;
+        // Same tick: the estimate falls (by about the jump), with the truth unchanged.
+        assert.ok(bandCenter(g, 0) < center, `seed ${seed}: estimate didn't drop at a retraction`);
+      }
+      [center, truth] = [bandCenter(g, 0), frontier(g, 0)];
+    }
+  }
+  assert.ok(retractions >= 10 && wrong >= 1 && wrong < retractions, `retractions ${retractions}, wrong ${wrong}`);
 });
