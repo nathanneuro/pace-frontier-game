@@ -204,7 +204,8 @@ function advanceSafety(g, dt) {
 // blow-up). maxMultiplier (research speed relative to humans alone) only keeps the integrator finite.
 export const TAKEOFF = Object.freeze({
   // New internal capability feeds back into research only after a lag (integrating new models
-  // into research workflows): feedbackLagMonths at the start, shrinking linearly to zero at the end.
+  // into research workflows): feedbackLagMonths divided by the lab's current AI research multiplier,
+  // so AI speeds up its own integration (3 months at the start, under a day past ~x90).
   // Rolling back is immediate, and so is restoring capability that was already integrated.
   // Safety research integrates new models more slowly: its lag is safetyLagRatio times longer.
   feedbackLagMonths: 3,
@@ -214,20 +215,19 @@ export const TAKEOFF = Object.freeze({
   maxMultiplier: 20000,
 });
 
-// Feedback lag in game seconds at game time t, for capability research (ratio 1) or safety research.
-export function feedbackLag(t, ratio = 1) {
-  const lag = TAKEOFF.feedbackLagMonths / 12 / CLOCK.yearsPerSecond;
-  return ratio * lag * Math.max(0, 1 - t / SIM.duration);
+// Feedback lag in game seconds for a lab whose AI currently multiplies research speed by
+// `multiplier`, for capability research (ratio 1) or safety research.
+export function feedbackLag(multiplier, ratio = 1) {
+  return (ratio * TAKEOFF.feedbackLagMonths) / 12 / CLOCK.yearsPerSecond / multiplier;
 }
 
 const newIntegration = () => ({ integrated: 0, cursor: 0 });
 
 // Internal capability driving one kind of research at time t: the current internal deployment, capped
 // at the highest internal capability that had been deployed by (t - lag) and so has finished
-// integrating. Query times only move forward (lags shrink slower than time advances), so a cursor
-// over the lab's per-tick trace suffices.
+// integrating. Integration is never undone: if the lag grows (after a rollback) the cursor just waits.
 function integrate(lab, state, t, ratio) {
-  const when = t - feedbackLag(t, ratio);
+  const when = t - feedbackLag(takeoffMultiplier(lab.feedback), ratio);
   const trace = lab.internalTrace;
   while (state.cursor < trace.length && trace[state.cursor].t <= when) {
     state.integrated = Math.max(state.integrated, trace[state.cursor].internal);

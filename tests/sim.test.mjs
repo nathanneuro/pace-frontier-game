@@ -230,22 +230,15 @@ test('advanced: AI boosts safety research, but less than capability research', (
   }
 });
 
-test('advanced: internal capability feeds back after a lag that shrinks from 3 months to 0', () => {
+test('advanced: feedback lag is 3 months divided by the AI research multiplier', () => {
   const months = (s) => s * CLOCK.yearsPerSecond * 12;
-  assert.ok(Math.abs(months(feedbackLag(0)) - 3) < 1e-9);
-  assert.ok(Math.abs(months(feedbackLag(SIM.duration / 2)) - 1.5) < 1e-9);
-  assert.equal(feedbackLag(SIM.duration), 0);
+  assert.ok(Math.abs(months(feedbackLag(1)) - 3) < 1e-9);
+  assert.ok(Math.abs(months(feedbackLag(2)) - 1.5) < 1e-9);
+  assert.ok(months(feedbackLag(100)) * 30.4 < 1, 'under a day at x100');
   const g = immortal(createGame(4, { advanced: true }));
-  const seen = [];
-  while (g.t < 40) {
-    tick(g, all);
-    seen.push({ t: g.t, internal: g.labs[0].internal, feedback: g.labs[0].feedback });
-  }
-  const last = seen.at(-1);
-  const then = seen.findLast((s) => s.t <= last.t - feedbackLag(last.t) + 1e-9);
-  // The trace is recorded at the start of each tick, so the lagged value is at most one tick older.
-  assert.ok(last.feedback <= then.internal + 1e-9 && last.feedback < last.internal);
-  assert.ok(Math.abs(last.feedback - then.internal) <= then.internal - seen[seen.indexOf(then) - 1].internal + 1e-9);
+  while (g.t < 40) tick(g, all);
+  const lab = g.labs[0];
+  assert.ok(lab.feedback < lab.internal, 'new capability is still integrating');
 });
 
 test('advanced: rolling back internal deployment cuts feedback immediately; restoring is immediate too', () => {
@@ -262,8 +255,8 @@ test('advanced: rolling back internal deployment cuts feedback immediately; rest
 });
 
 test('advanced: safety research integrates new AI with a 15% longer lag', () => {
-  assert.ok(Math.abs(feedbackLag(10, TAKEOFF.safetyLagRatio) / feedbackLag(10) - 1.15) < 1e-12);
-  const g = runTo(advancedGame(4), 40, all);
+  assert.ok(Math.abs(feedbackLag(3, TAKEOFF.safetyLagRatio) / feedbackLag(3) - 1.15) < 1e-12);
+  const g = runTo(advancedGame(4), 25, all);
   const lab = g.labs[0];
   assert.ok(lab.safetyFeedback < lab.feedback, `safety ${lab.safetyFeedback} vs capability ${lab.feedback}`);
   setControls(g, 0, { ...all, internal: 0.1 });

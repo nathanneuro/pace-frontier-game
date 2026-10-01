@@ -72,13 +72,13 @@ other things endogenous.
    `r · top`. Top speed = human researchers (1.5) + AI researchers `1.5 · exp((I − 32)/8)` (`TAKEOFF`
    in `sim.js`). Here `I` is the **internally deployed** capability that feeds back into research:
    current internal deployment, capped at the highest internal capability deployed at least one
-   *feedback lag* ago. The lag is 3 months at the start and shrinks linearly to 0 at the end; it models
-   integrating new models into research. Rolling back is immediate, and so is restoring
-   already-integrated capability. Safety research has its own, 15% longer lag
-   (`TAKEOFF.safetyLagRatio`). During the surge this is the "sharp left turn": capability research
-   runs on a newer, much stronger AI than safety research. In one 50/50-funded game, safety stays
-   ahead until t ≈ 68, and by t ≈ 72 the AI doing capability research is ~2× the one doing safety
-   research and capability has overtaken the frontier. The AI share of research is therefore logistic in `I`: ~2% at the
+   *feedback lag* ago. The lag is 3 months divided by the lab's current AI research multiplier, so AI
+   speeds up its own integration: 3 months at the start, 1.5 at human level, under a day past ×90.
+   Rolling back is immediate, and so is restoring already-integrated capability. Safety research's
+   lag is 15% longer (`TAKEOFF.safetyLagRatio`). Because both lags collapse as the multiplier rises,
+   that gap matters only in the run-up to the surge. In a 50/50-funded game, capability overtakes the
+   own frontier around t ≈ 64–68. That is driven mainly by the funding split and AI's 75% safety
+   efficiency. The AI share of research is therefore logistic in `I`: ~2% at the
    start, 50% at human level (`I = 32`), >95% above `I ≈ 56`. Human level was lowered from 40 when the
    lag was added, to keep the median time to 95% AI share at ~11.6 game months on default settings. Beyond that,
    speed grows exponentially in capability, i.e. hyperbolically in time: a finite-time takeoff. The
