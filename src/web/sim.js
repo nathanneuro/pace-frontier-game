@@ -123,6 +123,10 @@ export const ADVANCED = Object.freeze({
   // So the truth is almost never outside the player's zone, and staying near its bottom is very
   // safe but uncompetitive. The bot's zone is not widened.
   playerZoneWidening: 1.5,
+  // Labs don't start from a standstill: before the game each has been researching at this
+  // capability share of funding for longer than the research lag, so it starts at cruising speed with
+  // research already in flight (landing from t = 0). Simple mode's pedal starts here too.
+  startingResearch: 0.7,
   biasReversion: 0.1,
   realBreakthroughRate: 1 / 16,
   falseBreakthroughRate: 1 / 16,
@@ -232,7 +236,7 @@ export const TAKEOFF = Object.freeze({
   researchLagMonths: 3,
   safetyLagRatio: 1.15,
   safetyLagExponent: 0.75,
-  humanLevel: 24,
+  humanLevel: 38,
   scale: 8,
   diminishingReturnsAt: 5000,
   maxMultiplier: 20000,
@@ -419,6 +423,7 @@ export function createGame(seed = 1, {
   bot = BOT,
   externalThresholdGap = advanced ? ADVANCED.externalThresholdGap : 0,
   latentRiskWeight = advanced ? ADVANCED.latentRiskWeight : 0,
+  momentum = advanced,
 } = {}) {
   let n = seed >>> 0;
   n ^= n << 13;
@@ -470,10 +475,11 @@ export function createGame(seed = 1, {
     // research = capability share of research funding (advanced). Classic: all fractions are 1.
     labs: [0, 1].map(() => ({
       position: 0, available: 0, internalFraction: 1, externalFraction: 1, internal: 0, deployed: 0, deployments: [],
-      research: advanced ? 0 : 1, safetyFunding: 0, ownSafety: 0, capabilityPipeline: [], safetyPipeline: [], accumulated: 0, bias: startBias(), speed: 0, held: false, cash: 0, profit: PROFIT.baseProfit,
+      research: advanced ? ADVANCED.startingResearch : 1, safetyFunding: 0, ownSafety: 0, capabilityPipeline: [], safetyPipeline: [], accumulated: 0, bias: startBias(), speed: 0, held: false, cash: 0, profit: PROFIT.baseProfit,
     })),
     history: [],
   };
+  if (momentum) for (const lab of g.labs) startMomentum(g, lab);
   if (plateaus) {
     const p = { random: (seed ^ 2246822507) >>> 0, phase: 'rising', elapsed: 0, duration: 0 };
     p.duration = uniform(p, PLATEAU.minimumRise, PLATEAU.maximumRise);
@@ -481,6 +487,18 @@ export function createGame(seed = 1, {
   }
   record(g);
   return g;
+}
+
+// Research done before the game: at steady speed for the past research lag, so output lands
+// continuously from t = 0 (capability and safety pipelines filled as if the game had been running).
+function startMomentum(g, lab) {
+  lab.speed = lab.research * topSpeed(g, lab);
+  const fill = (pipeline, lag, rate) => {
+    for (let at = SIM.dt; at <= lag + EPS; at += SIM.dt) pipeline.push({ at, amount: rate * SIM.dt });
+  };
+  const m = researchMultiplier(g, lab);
+  fill(lab.capabilityPipeline, researchLag(m), lab.speed);
+  fill(lab.safetyPipeline, researchLag(m, true), (1 - lab.research) * ADVANCED.safetyResearchSpeed * safetyMultiplier(g, lab));
 }
 
 // History snapshot (every 0.1 s). Hidden quantities are recorded for the post-game review only.

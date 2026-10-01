@@ -77,7 +77,8 @@ test('game ends by the settle deadline or catastrophe', () => {
 
 const all = { research: 1, internal: 1, external: 1 };
 const immortal = (g) => Object.assign(g, { threshold: Infinity });
-const advancedGame = (seed) => immortal(createGame(seed, { advanced: true }));
+// Mechanism tests start from a standstill (no pre-game research in flight) unless they say otherwise.
+const advancedGame = (seed, momentum = false) => immortal(createGame(seed, { advanced: true, momentum }));
 const runTo = (g, t, input) => { while (isLive(g) && g.t < t) tick(g, typeof input === 'function' ? input(g) : input); return g; };
 
 test('advanced: deployment rolls back and restores instantly', () => {
@@ -275,15 +276,17 @@ test('advanced: rolling back internal deployment cuts research power immediately
 
 test('simple mode: the pedal ramps funding to capabilities in ~1 s and back at the same rate', () => {
   const g = advancedGame(4);
+  assert.equal(g.labs[0].research, ADVANCED.startingResearch);
+  runTo(g, 1, false);
   assert.equal(g.labs[0].research, 0);
-  runTo(g, 0.5, true);
-  assert.ok(Math.abs(g.labs[0].research - 0.5) < 0.02, `research ${g.labs[0].research}`);
   runTo(g, 1.5, true);
+  assert.ok(Math.abs(g.labs[0].research - 0.5) < 0.02, `research ${g.labs[0].research}`);
+  runTo(g, 2.5, true);
   assert.equal(g.labs[0].research, 1);
   assert.equal(g.labs[0].internalFraction * g.labs[0].externalFraction, 1);
-  runTo(g, 2, false);
-  assert.ok(Math.abs(g.labs[0].research - 0.5) < 0.02, `research ${g.labs[0].research}`);
   runTo(g, 3, false);
+  assert.ok(Math.abs(g.labs[0].research - 0.5) < 0.02, `research ${g.labs[0].research}`);
+  runTo(g, 4, false);
   assert.equal(g.labs[0].research, 0);
 });
 
@@ -340,4 +343,18 @@ test('cumulative risk is tracked per lab and as the player estimated it', () => 
   assert.ok(g.seenHazard > 0 && g.labHazards[0] > 0);
   const c = play(createGame(5), () => true);
   assert.ok(c.seenHazard > 0 && c.labHazards.every((h) => h === 0));
+});
+
+test('advanced: both labs start with research momentum already landing', () => {
+  const g = advancedGame(4, true);
+  for (const lab of g.labs) {
+    assert.equal(lab.research, ADVANCED.startingResearch);
+    assert.ok(lab.speed > 0 && pendingResearch(lab).capability > 0 && pendingResearch(lab).safety > 0);
+  }
+  const before = frontier(g, 0) - g.safety;
+  runTo(g, 1, { research: 0, internal: 1, external: 1 });
+  // Output lands from the start, even after the player switches all funding to safety.
+  assert.ok(g.labs[0].position > 0.5, `latent ${g.labs[0].position}`);
+  assert.ok(frontier(g, 0) - g.safety > before);
+  assert.equal(createGame(4).labs[0].capabilityPipeline.length, 0);
 });
