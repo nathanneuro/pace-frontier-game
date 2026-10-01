@@ -201,11 +201,11 @@ function advanceSafety(g, dt) {
 // human * exp((internal - humanLevel) / scale). So the AI share of research is a logistic in
 // internally deployed capability (half at human level, ~95% three scales above), and total speed
 // then grows exponentially in capability, which means hyperbolically in time (finite-time
-// blow-up). maxSpeed only keeps the integrator stable.
+// blow-up). maxMultiplier (research speed relative to humans alone) only keeps the integrator finite.
 export const TAKEOFF = Object.freeze({
   humanLevel: 40,
   scale: 8,
-  maxSpeed: 400,
+  maxMultiplier: 20000,
 });
 
 // Share of a lab's research done by its own AI (advanced mode).
@@ -218,7 +218,7 @@ export function aiResearchShare(lab) {
 function topSpeed(g, lab) {
   if (g.advanced) {
     const ai = Math.exp((Math.max(0, lab.internal) - TAKEOFF.humanLevel) / TAKEOFF.scale);
-    return Math.min(TAKEOFF.maxSpeed, SPEED.initialSpeed * (1 + ai));
+    return SPEED.initialSpeed * Math.min(TAKEOFF.maxMultiplier, 1 + ai);
   }
   const x = Math.max(0, lab.position);
   const early = -Math.expm1(-x / SPEED.earlyRsiScale);
@@ -601,6 +601,7 @@ export function monthsRemaining(t) {
   return Math.ceil(Math.max(0, SIM.duration - t) * CLOCK.yearsPerSecond * 12 - 1e-9);
 }
 
-export function gameDate(t) {
-  return new Date(CLOCK.startUtc + Math.floor(Math.max(0, t) * CLOCK.daysPerSecond + 1e-8) * 864e5);
+// Calendar date at game time t. startUtc: midnight UTC of the first game day.
+export function gameDate(t, startUtc = CLOCK.startUtc) {
+  return new Date(startUtc + Math.floor(Math.max(0, t) * CLOCK.daysPerSecond + 1e-8) * 864e5);
 }

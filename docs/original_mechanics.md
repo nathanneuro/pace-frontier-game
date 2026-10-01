@@ -73,7 +73,7 @@ other things endogenous.
    **internally deployed** capability (`TAKEOFF` in `sim.js`). The AI share of research is therefore
    logistic in `I`: ~1% at the start, 50% at human level (`I = 40`), >95% above `I ≈ 64`. Beyond that,
    speed grows exponentially in capability, i.e. hyperbolically in time: a finite-time takeoff. The
-   cap of 400 units/s (×267) exists only for numerical stability. On default settings (70%
+   ×20,000 cap on research speed exists only to keep the numbers finite. On default settings (70%
    capability, full deployment), takeoff happens around t ≈ 45 s. The advanced chart uses a log scale
    (`log(1 + v)`) so takeoff doesn't flatten the early game. The remaining `1 − r` funds
    safety, which raises **your own** true frontier by `(1 − r) · 1.2 · m_s` per second. Here

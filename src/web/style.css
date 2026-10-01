@@ -78,3 +78,4 @@ header a { color: inherit; }
 #takeoff { grid-column: 1 / -1; margin: 0; color: var(--muted); }
 #takeoff[data-level="dominant"] { color: #d35400; }
 #takeoff[data-level="takeoff"] { color: #c0392b; font-weight: 700; }
+#game-speed { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--border); margin-left: 4px; }

@@ -1,6 +1,6 @@
 import {
   SIM, DEPLOY_LAG, mixSeed, UNCERTAINTY, createGame, tick, isLive, bandCenter, playerRiskCapability, frontier, aiResearchShare, researchMultiplier, TAKEOFF,
-  expectedMonthlyRisk, monthlyRisk, cumulativeRisk, monthsRemaining, gameDate,
+  expectedMonthlyRisk, monthlyRisk, cumulativeRisk, monthsRemaining, gameDate, CLOCK,
 } from './sim.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -8,6 +8,9 @@ const params = new URLSearchParams(location.search);
 const halfWidth = params.has('w') ? Number(params.get('w')) : UNCERTAINTY.halfWidth;
 if (!(Number.isFinite(halfWidth) && halfWidth >= 0)) throw Error(`Invalid ?w=${params.get('w')}; expected a non-negative number.`);
 const advanced = params.get('mode') === 'advanced';
+// Classic keeps Paradigm's start date; advanced starts on the day you play.
+const now = new Date();
+const startUtc = advanced ? Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) : CLOCK.startUtc;
 document.body.dataset.mode = advanced ? 'advanced' : 'classic';
 
 const RISK_LEVELS = [['critical', 0.025], ['warning', 0.004], ['watch', 0.001]].map(([k, rate]) => [k, monthlyRisk(rate)]);
@@ -37,6 +40,10 @@ function start(s) {
 const pct = (sel) => Number($(sel).value) / 100;
 const controls = () => ({ research: pct('#research'), internal: pct('#internal'), external: pct('#external') });
 
+// Capability amounts: one decimal below 1000, compact (1.2k, 3.4M) above.
+const compact = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
+const cap = (x) => (Math.abs(x) < 1000 ? x.toFixed(1) : compact.format(x));
+
 function money(x) {
   const a = Math.abs(x);
   const sign = x < 0 ? '−' : '';
@@ -58,7 +65,7 @@ function renderPanels() {
   setProfit($('#you-profit'), g.labs[0].profit);
   setProfit($('#them-profit'), g.labs[1].profit);
   $('#timer').textContent = monthsRemaining(g.t);
-  const d = gameDate(g.t);
+  const d = gameDate(g.t, startUtc);
   $('#date').textContent = `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
 
   const risk = expectedMonthlyRisk(g);
@@ -76,12 +83,13 @@ function renderPanels() {
     // Each slider: what 0% means on the left, what 100% means on the right, with shares and amounts.
     const sides = (id, lo, hi, loAmount, hiAmount) => {
       const v = Number($(`#${id}`).value);
-      const amount = (x) => (x === undefined ? '' : ` · ${x.toFixed(1)}`);
+      const amount = (x) => (x === undefined ? '' : ` · ${cap(x)}`);
       $(`#${id}-lo`).textContent = `${lo} (${100 - v}%)${amount(loAmount)}`;
       $(`#${id}-hi`).textContent = `${hi} (${v}%)${amount(hiAmount)}`;
     };
     const share = aiResearchShare(me);
-    $('#takeoff').textContent = `Your AI does ${Math.round(100 * share)}% of your research (speed ×${researchMultiplier(g, me).toPrecision(3)} vs. humans alone)`;
+    const multiplier = researchMultiplier(g, me);
+    $('#takeoff').textContent = `Your AI does ${Math.round(100 * share)}% of your research (speed ×${multiplier < 1000 ? multiplier.toPrecision(3) : compact.format(multiplier)} vs. humans alone)`;
     $('#takeoff').dataset.level = share >= 0.95 ? 'takeoff' : share >= 0.5 ? 'dominant' : '';
     sides('research', 'Safety', 'Capabilities');
     sides('internal', 'Held back', 'Run internally', me.available - me.internal, me.internal);
@@ -108,12 +116,12 @@ function showResult() {
     ['Accumulated', ...g.labs.map((l) => money(l.accumulated))],
     ['Payout', money(you), money(them)],
     ...(advanced ? [
-      ['External capability', me.deployed.toFixed(1), bot.deployed.toFixed(1)],
-      ['Internal capability', me.internal.toFixed(1), bot.internal.toFixed(1)],
-      ['Latent capability', me.position.toFixed(1), bot.position.toFixed(1)],
+      ['External capability', cap(me.deployed), cap(bot.deployed)],
+      ['Internal capability', cap(me.internal), cap(bot.internal)],
+      ['Latent capability', cap(me.position), cap(bot.position)],
       ['Avg. safety funding', ...g.labs.map((l) => `${Math.round((100 * l.safetyFunding) / Math.min(g.t, SIM.duration))}%`)],
-    ] : [['Deployed capability', me.deployed.toFixed(1), bot.deployed.toFixed(1)]]),
-    ['True safety frontier', ...(advanced ? [0, 1].map((i) => frontier(g, i).toFixed(1)) : [g.safety.toFixed(1), ''])],
+    ] : [['Deployed capability', cap(me.deployed), cap(bot.deployed)]]),
+    ['True safety frontier', ...(advanced ? [0, 1].map((i) => cap(frontier(g, i))) : [cap(g.safety), ''])],
   ];
   const table = $('#result-table');
   table.replaceChildren();
@@ -212,15 +220,17 @@ function drawChart() {
   ctx.stroke();
   if (advanced) {
     ctx.fillStyle = css('--muted');
-    for (const v of gridValues) ctx.fillText(String(v), 4, Y(v) - 3);
+    const crowded = gridValues.length > 7;
+    for (const v of gridValues) if (!crowded || Number.isInteger(Math.log10(v))) ctx.fillText(cap(v), 4, Y(v) - 3);
   }
 
   // Month ticks on the x axis.
   ctx.fillStyle = css('--muted');
   let lastRight = -Infinity;
   for (let m = 0; ; m++) {
-    const d = new Date(Date.UTC(2026, 7 + m, 1));
-    const t = (d - gameDate(0)) / 864e5 / 7;
+    const first = new Date(startUtc);
+    const d = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1 + m, 1));
+    const t = (d - startUtc) / 864e5 / CLOCK.daysPerSecond;
     if (t > end) break;
     if (t < start) continue;
     const label = MONTHS[d.getUTCMonth()] + (d.getUTCMonth() === 0 ? ` '${String(d.getUTCFullYear()).slice(2)}` : '');
@@ -346,7 +356,7 @@ let last = null;
 let pending = 0;
 function frame(now) {
   if (last !== null && started && isLive(game)) {
-    pending += Math.min(0.1, (now - last) / 1000);
+    pending += Math.min(0.1, (now - last) / 1000) * Number($('#game-speed').value);
     while (pending >= SIM.dt && isLive(game)) {
       tick(game, advanced ? controls() : held);
       pending -= SIM.dt;

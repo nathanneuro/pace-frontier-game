@@ -215,7 +215,7 @@ test('advanced takeoff: AI share is half at human level, dominant above, and spe
   // Above human level each extra `scale` of capability multiplies research speed by ~e.
   assert.ok(Math.abs(top(H + 4 * S) / top(H + 3 * S) - (1 + Math.E ** 4) / (1 + Math.E ** 3)) < 1e-9);
   assert.ok(Math.abs(top(H + 5 * S) / top(H + 4 * S) - (1 + Math.E ** 5) / (1 + Math.E ** 4)) < 1e-9);
-  assert.equal(top(H + 10 * S), TAKEOFF.maxSpeed);
+  assert.equal(top(H + 10 * S), 1.5 * TAKEOFF.maxMultiplier);
 });
 
 test('advanced: AI boosts safety research, but less than capability research', () => {
