@@ -22,7 +22,8 @@ document.body.dataset.mode = mode;
 
 const RISK_LEVELS = [['critical', 0.025], ['warning', 0.004], ['watch', 0.001]].map(([k, rate]) => [k, monthlyRisk(rate)]);
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const WINDOW = 12;
+const WINDOW = 12; // minimum live chart span, game seconds
+const HISTORY = 6; // live chart keeps at least this much past in view
 
 let game;
 let held = false;
@@ -184,14 +185,29 @@ new ResizeObserver(([e]) => {
 
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
-function viewport(g) {
+// Your external deployment from now until everything already paid for is deployed: queued
+// deployments, then in-flight research (in landing order) once it clears the deployment lag. Runs at
+// least one full research + deployment lag ahead, flat once nothing more is committed.
+function projection(g) {
+  const me = g.labs[0];
+  const share = me.externalFraction * me.internalFraction;
+  let latent = me.position;
+  const points = [[g.t, me.deployed], ...me.deployments.map((d) => [d.at, share * d.position]),
+    ...[...me.capabilityPipeline].sort((a, b) => a.at - b.at).map((p) => [p.at + DEPLOY_LAG, share * (latent += p.amount)])];
+  const horizon = g.t + (advanced ? researchLag(researchMultiplier(g, me)) : 0) + DEPLOY_LAG;
+  if (points.at(-1)[0] < horizon) points.push([horizon, points.at(-1)[1]]);
+  return points;
+}
+
+function viewport(g, ahead) {
   const live = isLive(g);
-  const end = live ? Math.max(WINDOW, g.t + DEPLOY_LAG + 1) : view ? view.end : Math.max(g.t, 1);
-  const start = live ? Math.max(0, end - WINDOW) : view ? view.start : 0;
+  const lead = live ? ahead.at(-1)[0] - g.t : 0;
+  const end = live ? Math.max(WINDOW, g.t + lead + 1) : view ? view.end : Math.max(g.t, 1);
+  const start = live ? Math.max(0, end - Math.max(WINDOW, lead + 1 + HISTORY)) : view ? view.start : 0;
   const visible = g.history.filter((h) => h.t >= start && h.t <= end);
   const lows = visible.flatMap((h) => [zonePoint(g, h.center, 0), ...h.deployed]);
   const highs = visible.flatMap((h) => [zonePoint(g, h.center, 1), ...h.deployed]);
-  if (live) highs.push(g.labs[0].position, ...(advanced ? visible.flatMap((h) => [h.latent[0], h.internal[0]]) : []));
+  if (live) highs.push(g.labs[0].position, ...ahead.map(([, v]) => v), ...(advanced ? visible.flatMap((h) => [h.latent[0], h.internal[0]]) : []));
   else highs.push(...visible.flatMap((h) => [...h.frontier, ...(advanced ? [...h.latent, ...h.internal] : [])]));
   const lo = Math.max(0, Math.min(...lows) - 2);
   const hi = Math.max(lo + 16, Math.max(...highs) + 2);
@@ -213,7 +229,8 @@ function polyline(points, color, width, dash = []) {
 function drawChart() {
   const g = game;
   const pad = { left: 16, right: 16, top: 12, bottom: 24 };
-  const { start, end, lo, hi } = viewport(g);
+  const ahead = isLive(g) ? projection(g) : null;
+  const { start, end, lo, hi } = viewport(g, ahead);
   const X = (t) => pad.left + ((t - start) / (end - start)) * (W - pad.left - pad.right);
   // Advanced mode plots capability on a log scale (log(1 + v)) so takeoff doesn't flatten the early game.
   const f = advanced ? (v) => Math.log1p(Math.max(0, v)) : (v) => v;
@@ -317,9 +334,7 @@ function drawChart() {
   for (const i of [1, 0]) polyline(hist.map((h) => [X(h.t), Y(h.deployed[i])]), i ? css('--them') : css('--you'), i ? 2.5 : 3);
 
   if (isLive(g)) {
-    const me = g.labs[0];
-    const research = [[g.t, me.deployed], ...me.deployments.map((d) => [d.at, me.externalFraction * me.internalFraction * d.position])];
-    polyline(research.map(([t, v]) => [X(t), Y(v)]), css('--you'), 3, [1, 6]);
+    polyline(ahead.map(([t, v]) => [X(t), Y(v)]), css('--you'), 3, [1, 6]);
     for (const i of [1, 0]) {
       ctx.beginPath();
       ctx.arc(X(g.t), Y(g.labs[i].deployed), 5, 0, 2 * Math.PI);
