@@ -308,11 +308,36 @@ test('advanced: uncertainty grows once AI research outpaces humans', () => {
     return [researchMultiplier(g, lab), uncertaintyScale(g, 0), zoneHalfWidth(g, 0), bandCenter(g, 0)];
   };
   const [m0, s0, w0] = at(0);
-  assert.ok(m0 < 1.1 && s0 < 1.02 && Math.abs(w0 - g.halfWidth) < 0.01);
+  const widen = ADVANCED.playerZoneWidening;
+  assert.ok(m0 < 1.1 && s0 < 1.02 && Math.abs(w0 - widen * g.halfWidth) < 0.01);
   const [m1, s1, w1, c1] = at(100);
   assert.ok(Math.abs(s1 - (1 + ADVANCED.speedUncertainty * Math.log10(m1))) < 1e-12 && s1 > 2);
-  assert.ok(Math.abs(w1 - g.halfWidth * s1) < 1e-12);
+  assert.ok(Math.abs(w1 - widen * g.halfWidth * s1) < 1e-12);
   // The estimate's error scales too: center = truth * exp(bias * scale).
   assert.ok(Math.abs(c1 - frontier(g, 0) * Math.exp(lab.bias * s1)) < 1e-9);
   assert.equal(uncertaintyScale(createGame(1), 0), 1);
+});
+
+test('advanced: the player zone is wider than the bot zone; truth is almost never outside it', () => {
+  let outside = 0;
+  let samples = 0;
+  for (let seed = 1; seed <= 20; seed++) {
+    const g = advancedGame(seed);
+    assert.ok(Math.abs(zoneHalfWidth(g, 0) / zoneHalfWidth(g, 1) - ADVANCED.playerZoneWidening) < 1e-12);
+    while (isLive(g)) {
+      tick(g, { research: 0.7, internal: 1, external: 1 });
+      samples++;
+      const log = Math.log(frontier(g, 0) / bandCenter(g, 0));
+      if (Math.abs(log) > zoneHalfWidth(g, 0)) outside++;
+    }
+  }
+  assert.ok(outside / samples < 0.01, `share outside the player zone ${outside / samples}`);
+});
+
+test('cumulative risk is tracked per lab and as the player estimated it', () => {
+  const g = runTo(advancedGame(4), 60, all);
+  assert.ok(Math.abs(g.labHazards[0] + g.labHazards[1] - g.hazard) < 1e-9 * Math.max(1, g.hazard));
+  assert.ok(g.seenHazard > 0 && g.labHazards[0] > 0);
+  const c = play(createGame(5), () => true);
+  assert.ok(c.seenHazard > 0 && c.labHazards.every((h) => h === 0));
 });

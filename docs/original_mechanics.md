@@ -122,7 +122,14 @@ Once AI research outpaces humans, people can follow less of what's happening: ea
 uncertainty scales by `kᵢ = 1 + 0.3 · log10(multiplierᵢ)` (`ADVANCED.speedUncertainty`; ×1.3 at
 ×10, ×1.6 at ×100, ×2.3 at ×20,000). Both the zone half-width (`w · kᵢ`) and the estimate's actual
 error (center `Sᵢ · exp(bᵢ · kᵢ)`) scale, so the zone stays calibrated: the truth is outside it
-exactly when `|bᵢ| > w`. A lab sees
+exactly when `|bᵢ| > w`. The player's *displayed* zone is 1.5× wider still
+(`ADVANCED.playerZoneWidening`: ±3σ instead of ±2σ; −45%/+82% at the start) without changing the
+truth's distribution or the risk meter, so the truth is almost never outside it and competing
+with the bot means playing well into it. The bot's zone is not widened.
+
+The end screen compares cumulative catastrophe risk as the player's meter estimated it
+(`g.seenHazard`, the integral of the posterior-mean hazard rate) with the true risk each lab caused
+(`g.labHazards`) and the realized total. A lab sees
 its zone jump but can't tell which kind of jump it was. The parameters make `bᵢ` mean-zero with
 stationary standard deviation `w/2` (`zoneSigmas`), so the truth lies outside the zone some of the time (~5%)
 .

@@ -118,6 +118,11 @@ export const ADVANCED = Object.freeze({
   // uncertainty (the error of its estimate and the width of its zone) scales by
   // 1 + speedUncertainty * log10(research multiplier): x1.3 at x10, x1.6 at x100, x2.3 at x20000.
   speedUncertainty: 0.3,
+  // The player's displayed zone is this much wider than the uncertainty it reflects (ending at
+  // zoneSigmas * playerZoneWidening standard deviations); the truth's distribution is unchanged.
+  // So the truth is almost never outside the player's zone, and staying near its bottom is very
+  // safe but uncompetitive. The bot's zone is not widened.
+  playerZoneWidening: 1.5,
   biasReversion: 0.1,
   realBreakthroughRate: 1 / 16,
   falseBreakthroughRate: 1 / 16,
@@ -336,7 +341,8 @@ export const uncertaintyScale = (g, i = 0) =>
   (g.advanced ? 1 + ADVANCED.speedUncertainty * Math.log10(researchMultiplier(g, g.labs[i])) : 1);
 
 // Lab i's danger-zone half-width (capability units in classic, log units in advanced).
-export const zoneHalfWidth = (g, i = 0) => g.halfWidth * uncertaintyScale(g, i);
+export const zoneHalfWidth = (g, i = 0) =>
+  g.halfWidth * uncertaintyScale(g, i) * (g.advanced && i === 0 ? ADVANCED.playerZoneWidening : 1);
 
 // Lab i's estimated frontier (center of its danger zone).
 export const bandCenter = (g, i = 0) => shiftBy(g, frontier(g, i), g.labs[i].bias * uncertaintyScale(g, i));
@@ -439,6 +445,9 @@ export function createGame(seed = 1, {
       nextChange: SIM.safetyFlatUntil,
     },
     hazard: 0,
+    // Cumulative hazard per lab (advanced; classic: shared only) and as the player's meter estimated it.
+    labHazards: [0, 0],
+    seenHazard: 0,
     threshold: -Math.log(u),
     halfWidth,
     advanced,
@@ -565,6 +574,8 @@ export function step(g) {
   const dt = SIM.dt;
   const rate0 = totalHazardRate(g);
   const belief0 = beliefRates(g);
+  const seen0 = expectedRate(g, belief0);
+  const labRates0 = g.advanced ? [0, 1].map((i) => labHazardRate(g, i)) : null;
   const profit0 = g.labs.map((lab, i) => profitRate(lab.deployed, g.labs[1 - i].deployed));
   g.t += dt;
   for (const lab of g.labs) {
@@ -582,7 +593,10 @@ export function step(g) {
   if (g.advanced) advanceWorld(g, dt);
   g.hazard += ((rate0 + totalHazardRate(g)) / 2) * dt;
   // Survival likelihood under each particle: P(survive dt | offset) = exp(-rate dt).
-  beliefRates(g).forEach((r, k) => (g.belief.logWeights[k] -= ((belief0[k] + r) / 2) * dt));
+  const belief1 = beliefRates(g);
+  belief1.forEach((r, k) => (g.belief.logWeights[k] -= ((belief0[k] + r) / 2) * dt));
+  g.seenHazard += ((seen0 + expectedRate(g, belief1)) / 2) * dt;
+  if (g.advanced) labRates0.forEach((r, i) => (g.labHazards[i] += ((r + labHazardRate(g, i)) / 2) * dt));
   if (g.advanced) resample(g);
   const years = dt * CLOCK.yearsPerSecond;
   if (g.phase === 'running') for (const lab of g.labs) lab.safetyFunding += (1 - lab.research) * dt;
@@ -602,6 +616,12 @@ export function beliefWeights(g) {
   const w = lw.map((x) => Math.exp(x - top));
   const total = w.reduce((a, b) => a + b, 0);
   return w.map((x) => x / total);
+}
+
+// Hazard rate the player expects (posterior mean), given per-particle rates.
+function expectedRate(g, rates) {
+  const w = beliefWeights(g);
+  return rates.reduce((sum, r, k) => sum + w[k] * r, 0);
 }
 
 // Catastrophe risk over the next month as the player can compute it: averaged over its belief.
@@ -693,8 +713,9 @@ export function tick(g, input) {
   step(g);
 }
 
-export function cumulativeRisk(g) {
-  return -Math.expm1(-Math.max(0, g.hazard));
+// Probability of catastrophe implied by a cumulative hazard (default: the realized shared total).
+export function cumulativeRisk(g, hazard = g.hazard) {
+  return -Math.expm1(-Math.max(0, hazard));
 }
 
 export function monthsRemaining(t) {
