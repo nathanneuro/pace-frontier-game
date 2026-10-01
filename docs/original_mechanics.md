@@ -132,7 +132,8 @@ flux (false claims up, debunkings down), and the jump variance counts all three 
 (`ADVANCED.releaseWeeks`) a lab checkpoints its latent capability; each checkpoint is deployable
 after the 2-week deployment lag, so deployed capability rises in steps that get finer as AI speeds
 up. Turning deployment down stays smooth and instant (any fraction of a release can be served, by
-noise injection for smoothly decreasing model capabilities), and so does turning it back up.
+noise injection for smoothly decreasing model capabilities,
+[arXiv:2412.01784](https://arxiv.org/abs/2412.01784)), and so does turning it back up.
 Once AI research outpaces humans, people can follow less of what's happening: each lab's
 uncertainty scales by `kᵢ = 1 + 0.3 · log10(multiplierᵢ)` (`ADVANCED.speedUncertainty`; ×1.3 at
 ×10, ×1.6 at ×100, ×2.3 at ×20,000). Both the zone half-width (`w · kᵢ`) and the estimate's actual
