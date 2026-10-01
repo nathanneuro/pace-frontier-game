@@ -85,8 +85,10 @@ function renderPanels() {
     sides('external', 'Internal only', 'Sold externally', me.internal - me.deployed, me.deployed);
   }
 
-  $('#pedal-text').textContent = !started ? 'Start' : !isLive(g) ? 'Game over' : advanced ? 'Running' : 'Accelerate';
-  $('#accelerator').disabled = !isLive(g) || (advanced && started);
+  // After the game, closing the results turns the button into a way back to them.
+  const reviewing = !isLive(g) && $('#result').hidden;
+  $('#pedal-text').textContent = !started ? 'Start' : reviewing ? 'Show results' : !isLive(g) ? 'Game over' : advanced ? 'Running' : 'Accelerate';
+  $('#accelerator').disabled = reviewing ? false : !isLive(g) || (advanced && started);
   $('#accelerator').setAttribute('aria-pressed', String(held && g.phase === 'running'));
 }
 
@@ -268,6 +270,10 @@ function drawChart() {
 // ---- input + loop ----
 
 function press() {
+  if (!isLive(game) && $('#result').hidden) {
+    $('#result').hidden = false;
+    return;
+  }
   if (game.phase !== 'running') return;
   started = true;
   held = !advanced;
@@ -294,6 +300,9 @@ addEventListener('keydown', (e) => {
 addEventListener('keyup', (e) => e.code === 'Space' && release());
 addEventListener('blur', release);
 $('#again').addEventListener('click', () => start(newSeed()));
+$('#close-result').addEventListener('click', () => {
+  $('#result').hidden = true;
+});
 
 // Keyboard: Q/A capability share, W/S internal, E/D external, in steps of 10%.
 const KEYS = {

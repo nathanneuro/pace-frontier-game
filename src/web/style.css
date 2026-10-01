@@ -40,6 +40,7 @@ header p { margin: 0 0 10px; max-width: 70ch; line-height: 1.4; }
 #result[hidden] { display: none; }
 #result h2 { font-family: Georgia, serif; font-weight: 400; font-size: 28px; margin: 0; }
 #result p { margin: 0; max-width: 60ch; }
+.result-actions { display: flex; gap: 8px; }
 #result-table { border-collapse: collapse; margin: 4px 0; }
 #result-table :is(th, td) { padding: 3px 14px; text-align: right; }
 #result-table :is(th, td):first-child { text-align: left; color: var(--muted); }
