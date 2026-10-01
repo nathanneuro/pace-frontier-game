@@ -326,7 +326,7 @@ function drawChart() {
   if (advanced) {
     for (const i of isLive(g) ? [0] : [1, 0]) {
       const color = i ? css('--them') : css('--you');
-      polyline(hist.map((h) => [X(h.t), Y(h.latent[i])]), color, 1.5, [4, 3]);
+      if (mode !== 'simple') polyline(hist.map((h) => [X(h.t), Y(h.latent[i])]), color, 1.5, [4, 3]);
       polyline(hist.map((h) => [X(h.t), Y(h.internal[i])]), color, 1.5);
     }
   }
