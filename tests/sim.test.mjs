@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   SIM, createGame, tick, isLive, bandCenter, beliefWeights, expectedMonthlyRisk,
-  monthlyRisk, hazardRate, riskCapability, playerRiskCapability, labRisk, aiResearchShare, TAKEOFF, stoppingDistance, researchMultiplier, safetyMultiplier, researchLag, pendingResearch, committedLatent, CLOCK, frontier, labHazardRate, totalHazardRate, setControls, ADVANCED, mixSeed, zonePoint, zoneHalfWidth, uncertaintyScale, step, botTarget,
+  monthlyRisk, hazardRate, riskCapability, playerRiskCapability, labRisk, aiResearchShare, TAKEOFF, stoppingDistance, researchMultiplier, safetyMultiplier, researchLag, pendingResearch, committedLatent, CLOCK, frontier, labHazardRate, totalHazardRate, setControls, ADVANCED, mixSeed, zonePoint, zoneHalfWidth, uncertaintyScale, step, botTarget, releaseInterval,
 } from '../src/web/sim.js';
 
 function play(g, policy) {
@@ -82,7 +82,7 @@ const advancedGame = (seed, momentum = false) => immortal(createGame(seed, { adv
 const runTo = (g, t, input) => { while (isLive(g) && g.t < t) tick(g, typeof input === 'function' ? input(g) : input); return g; };
 
 test('advanced: deployment rolls back and restores instantly', () => {
-  const g = runTo(advancedGame(9), 20, all);
+  const g = runTo(advancedGame(9), 24, all);
   const { available } = g.labs[0];
   assert.ok(available > 5);
   setControls(g, 0, { research: 1, internal: 0.5, external: 0.4 });
@@ -407,4 +407,21 @@ test('advanced: re-examined breakthroughs can drop the estimate suddenly; truth 
     }
   }
   assert.ok(retractions >= 10 && wrong >= 1 && wrong < retractions, `retractions ${retractions}, wrong ${wrong}`);
+});
+
+test('advanced: capability ships in discrete releases, more often as AI speeds up', () => {
+  const g = advancedGame(4, true);
+  const steps = [];
+  let last = g.labs[0].available;
+  while (g.t < 30) {
+    tick(g, all);
+    if (g.labs[0].available !== last) steps.push(g.t);
+    last = g.labs[0].available;
+  }
+  const gaps = steps.slice(1).map((t, k) => t - steps[k]);
+  const interval = releaseInterval(g, g.labs[0]);
+  assert.ok(steps.length >= 5 && gaps.every((d) => d > 0.8 * interval), `release gaps ${gaps}`);
+  const lab = g.labs[0];
+  lab.internal = TAKEOFF.humanLevel + 40;
+  assert.ok(releaseInterval(g, lab) < interval / 50);
 });

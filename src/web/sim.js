@@ -133,6 +133,10 @@ export const ADVANCED = Object.freeze({
   // research already in flight and some already deployed. Simple mode's pedal starts here too.
   startingResearch: 0.7,
   momentumMonths: 4,
+  // Capability ships in discrete model releases: a lab checkpoints its latent capability every
+  // releaseWeeks / (AI research multiplier), and each checkpoint is deployable after the usual
+  // deployment lag. So deployed capability rises in steps, finer as AI speeds up.
+  releaseWeeks: 2,
   biasReversion: 0.1,
   realBreakthroughRate: 1 / 16,
   falseBreakthroughRate: 1 / 16,
@@ -495,7 +499,7 @@ export function createGame(seed = 1, {
     // research = capability share of research funding (advanced). Classic: all fractions are 1.
     labs: [0, 1].map(() => ({
       position: 0, available: 0, internalFraction: 1, externalFraction: 1, internal: 0, deployed: 0, deployments: [],
-      research: advanced ? ADVANCED.startingResearch : 1, safetyFunding: 0, ownSafety: 0, capabilityPipeline: [], safetyPipeline: [], accumulated: 0, watch: null, claims: [], bias: startBias(), speed: 0, held: false, cash: 0, profit: PROFIT.baseProfit,
+      research: advanced ? ADVANCED.startingResearch : 1, safetyFunding: 0, ownSafety: 0, capabilityPipeline: [], safetyPipeline: [], accumulated: 0, watch: null, claims: [], nextRelease: 0, bias: startBias(), speed: 0, held: false, cash: 0, profit: PROFIT.baseProfit,
     })),
     history: [],
   };
@@ -509,6 +513,10 @@ export function createGame(seed = 1, {
   return g;
 }
 
+// Time between a lab's model releases (advanced), in game seconds.
+export const releaseInterval = (g, lab) =>
+  (ADVANCED.releaseWeeks * 7) / CLOCK.daysPerSecond / researchMultiplier(g, lab);
+
 // Research done before the game: steady research for momentumMonths before t = 0. Output produced
 // at tau lands at tau + lag: what landed before t = 0 is already latent (and deployed, or queued
 // for deployment); the rest is in flight. Safety likewise.
@@ -516,18 +524,22 @@ function startMomentum(g, lab) {
   lab.speed = lab.research * topSpeed(g, lab);
   const m = researchMultiplier(g, lab);
   const [capLag, safetyLag] = [researchLag(m), researchLag(m, true)];
-  const capability = lab.speed * SIM.dt;
+  const begin = -ADVANCED.momentumMonths * SECONDS_PER_MONTH;
+  const latentAt = (s) => lab.speed * Math.max(0, s - begin - capLag);
   const safety = (1 - lab.research) * ADVANCED.safetyResearchSpeed * safetyMultiplier(g, lab) * SIM.dt;
-  for (let tau = SIM.dt - ADVANCED.momentumMonths * SECONDS_PER_MONTH; tau <= EPS; tau += SIM.dt) {
-    if (tau + capLag > EPS) lab.capabilityPipeline.push({ at: tau + capLag, amount: capability });
-    else {
-      lab.position += capability;
-      if (tau + capLag + DEPLOY_LAG > EPS) lab.deployments.push({ at: tau + capLag + DEPLOY_LAG, position: lab.position });
-      else lab.available = lab.position;
-    }
+  for (let tau = begin + SIM.dt; tau <= EPS; tau += SIM.dt) {
+    if (tau + capLag > EPS) lab.capabilityPipeline.push({ at: tau + capLag, amount: lab.speed * SIM.dt });
     if (tau + safetyLag > EPS) lab.safetyPipeline.push({ at: tau + safetyLag, amount: safety });
     else lab.ownSafety += safety;
   }
+  lab.position = latentAt(0);
+  // Releases so far: deployed if past the deployment lag, otherwise queued.
+  let release = begin;
+  for (; release <= EPS; release += releaseInterval(g, lab)) {
+    if (release + DEPLOY_LAG > EPS) lab.deployments.push({ at: release + DEPLOY_LAG, position: latentAt(release) });
+    else lab.available = latentAt(release);
+  }
+  lab.nextRelease = release;
   applyFractions(lab);
 }
 
@@ -644,7 +656,13 @@ export function step(g) {
   for (const lab of g.labs) {
     const before = lab.position;
     moveLab(g, lab, dt);
-    if (lab.position > before) lab.deployments.push({ at: g.t + DEPLOY_LAG, position: lab.position });
+    if (!g.advanced) {
+      if (lab.position > before) lab.deployments.push({ at: g.t + DEPLOY_LAG, position: lab.position });
+    } else if (g.t + EPS >= lab.nextRelease) {
+      const last = lab.deployments.at(-1)?.position ?? lab.available;
+      if (lab.position > last) lab.deployments.push({ at: g.t + DEPLOY_LAG, position: lab.position });
+      lab.nextRelease = g.t + releaseInterval(g, lab);
+    }
     while (lab.deployments.length && lab.deployments[0].at <= g.t + EPS) lab.available = lab.deployments.shift().position;
     applyFractions(lab);
   }

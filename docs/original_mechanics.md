@@ -121,6 +121,18 @@ frontier: lab `i` sees only its own zone, centered on `Sᵢ · exp(bᵢ)` and sp
 Ornstein–Uhlenbeck process (reversion 0.1/s) plus lab-specific *false breakthroughs*, which raise the
 estimate by a factor `1 + s`, `s ~ U(0.05, 0.2)`, without moving `S`. *Real breakthroughs* (same
 size distribution and rate) raise that lab's `Sᵢ` by `s · Sᵢ`, and with it its zone by the same factor.
+Claims get re-examined (`claimResolutionRate` 1/10 per second, ~2.5 months on average): a false one
+is exposed with probability 0.6 and a real one wrongly debunked with probability 0.15; otherwise the
+claim is settled. A debunking drops the lab's estimate back by the original jump while its true
+frontier stays put, so the zone can fall suddenly, and the lab can't tell a correct debunking from a
+wrong one. The offset's reversion target is set so its stationary mean stays zero given the net jump
+flux (false claims up, debunkings down), and the jump variance counts all three jump kinds.
+
+**Releases**: capability ships in discrete model releases. Every `2 weeks / multiplier`
+(`ADVANCED.releaseWeeks`) a lab checkpoints its latent capability; each checkpoint is deployable
+after the 2-week deployment lag, so deployed capability rises in steps that get finer as AI speeds
+up. Turning deployment down stays smooth and instant (any fraction of a release can be served, by
+noise injection for smoothly decreasing model capabilities), and so does turning it back up.
 Once AI research outpaces humans, people can follow less of what's happening: each lab's
 uncertainty scales by `kᵢ = 1 + 0.3 · log10(multiplierᵢ)` (`ADVANCED.speedUncertainty`; ×1.3 at
 ×10, ×1.6 at ×100, ×2.3 at ×20,000). Both the zone half-width (`w · kᵢ`) and the estimate's actual

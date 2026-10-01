@@ -1,5 +1,5 @@
 import {
-  SIM, DEPLOY_LAG, mixSeed, createGame, tick, isLive, bandCenter, zonePoint, zoneHalfWidth, playerRiskCapability, frontier, aiResearchShare, researchMultiplier, TAKEOFF, researchLag, pendingResearch,
+  SIM, DEPLOY_LAG, mixSeed, createGame, tick, isLive, bandCenter, zonePoint, zoneHalfWidth, playerRiskCapability, frontier, aiResearchShare, researchMultiplier, TAKEOFF, researchLag, releaseInterval, pendingResearch,
   expectedMonthlyRisk, monthlyRisk, cumulativeRisk, monthsRemaining, gameDate, CLOCK,
 } from './sim.js';
 
@@ -177,7 +177,7 @@ function showResult() {
     : advanced
       ? `The true frontier ended ${Math.round(100 * Math.abs(off))}% ${off < 0 ? 'below' : 'above'} the center of your danger zone (zone at the end: ${Math.round(100 * Math.expm1(-w))}% to +${Math.round(100 * Math.expm1(w))}%).`
         + ` ${real} of ${claims.length} apparent safety breakthroughs were real (▲ real, ✕ false on the chart).`
-        + ` ${retracted.length} were later debunked, dropping your zone: ${retracted.length - wrong} correctly (▽), ${wrong} wrongly (▼).`
+        + (retracted.length ? ` ${retracted.length} later debunked, dropping your zone: ${retracted.length - wrong} correctly (▽), ${wrong} wrongly (▼).` : '')
       : `The true frontier ended ${Math.abs(b).toFixed(2)} ${b > 0 ? 'below' : 'above'} the center of your danger zone (zone half-width ${g.halfWidth}).`;
   $('#result').hidden = false;
 }
@@ -197,15 +197,25 @@ new ResizeObserver(([e]) => {
 
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
-// Your external deployment from now until everything already paid for is deployed: queued
-// deployments, then in-flight research (in landing order) once it clears the deployment lag. Runs at
-// least one full research + deployment lag ahead, flat once nothing more is committed.
+// Your external deployment from now until everything already paid for is deployed, as steps: queued
+// releases, then (advanced) future releases of in-flight research at the current release cadence.
+// Runs at least one full research + deployment lag ahead, flat once nothing more is committed.
 function projection(g) {
   const me = g.labs[0];
   const share = me.externalFraction * me.internalFraction;
-  let latent = me.position;
-  const points = [[g.t, me.deployed], ...me.deployments.map((d) => [d.at, share * d.position]),
-    ...[...me.capabilityPipeline].sort((a, b) => a.at - b.at).map((p) => [p.at + DEPLOY_LAG, share * (latent += p.amount)])];
+  const releases = me.deployments.map((d) => [d.at, share * d.position]);
+  if (advanced) {
+    const landing = [...me.capabilityPipeline].sort((a, b) => a.at - b.at);
+    const interval = releaseInterval(g, me);
+    let latent = me.position;
+    let k = 0;
+    for (let r = me.nextRelease; k < landing.length; r += interval) {
+      while (k < landing.length && landing[k].at <= r) latent += landing[k++].amount;
+      releases.push([r + DEPLOY_LAG, share * latent]);
+    }
+  }
+  const points = [[g.t, me.deployed]];
+  for (const [t, v] of releases) points.push([t, points.at(-1)[1]], [t, v]);
   const horizon = g.t + (advanced ? researchLag(researchMultiplier(g, me)) : 0) + DEPLOY_LAG;
   if (points.at(-1)[0] < horizon) points.push([horizon, points.at(-1)[1]]);
   return points;
