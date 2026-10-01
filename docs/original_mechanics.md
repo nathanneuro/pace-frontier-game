@@ -144,16 +144,17 @@ covers only the player's own lab. The rival's hazard doesn't depend on the playe
 cancels out of the posterior, but it does add to the true risk. The meter is labelled "your lab only"
 for that reason.
 
-**Bot** (both modes; `BOT` in `sim.js`): it sees only its own zone and your external deployment. It
-sits at the bottom of its zone. When behind you, it chases to 1.5 past you, but never beyond 50% of
-the way up its zone. In advanced mode it funds capability until its latent stopping point reaches
-target + 3 and otherwise funds safety 100%. It keeps internal/latent headroom (1.5/3) above its
-external deployment and lowers external so its risk-weighted capability stays at the target.
-Tuned with `src/tools/eval_bot.mjs` against scripted players (100 seeds per cell). In advanced
-mode with per-lab frontiers: against idle or careful players, 0% catastrophe (original bot: 7% and
-34%), and it roughly ties a careful player. Against a player at their zone center it stays
-competitive, and the player's own risk drives the 25% catastrophe rate. Paradigm's bot, which chases without limit, is kept
-as `bot: 'original'` for the faithfulness regression.
+**Bot** (all modes; `BOT` in `sim.js`): it sees only its own zone and your external deployment. It
+sits at least at the bottom of its zone, and tries to stay ahead of you: it smooths your external
+deployment's growth rate (1 s time constant), projects where you'll be by the time its own research
+could land (its research lag + the deployment lag), and aims its external deployment past that by
+`max(1.5, 5%)`, but never beyond the middle of its zone (its best estimate of its frontier). In the
+advanced dynamics it funds capability until its latent stopping point reaches its external target
+plus 3 and otherwise funds safety 100%, keeping internal/latent headroom (1.5/3) above its external
+deployment. Against pedal players over 60 seeds it stays ahead of a careful player ~80–90% of the
+time and only falls behind players who go deep into their zone (bot-caused risk 2–4% vs careful
+players, ~13–15% when chasing aggressive ones up to its cap). Paradigm's bot, which chases 1.5 past
+your current deployment without limit, is kept as `bot: 'original'` for the faithfulness regression.
 
 Seeding caveat: the original's seed → catastrophe-threshold hash barely mixes small integers. Seeds
 1–100 give thresholds around 9 instead of Exp(1) (mean 1), which would make `?seed=42` games nearly

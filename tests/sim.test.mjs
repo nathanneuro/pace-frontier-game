@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   SIM, createGame, tick, isLive, bandCenter, beliefWeights, expectedMonthlyRisk,
-  monthlyRisk, hazardRate, riskCapability, playerRiskCapability, labRisk, aiResearchShare, TAKEOFF, stoppingDistance, researchMultiplier, safetyMultiplier, researchLag, pendingResearch, committedLatent, CLOCK, frontier, labHazardRate, totalHazardRate, setControls, ADVANCED, mixSeed, zonePoint, zoneHalfWidth, uncertaintyScale, step,
+  monthlyRisk, hazardRate, riskCapability, playerRiskCapability, labRisk, aiResearchShare, TAKEOFF, stoppingDistance, researchMultiplier, safetyMultiplier, researchLag, pendingResearch, committedLatent, CLOCK, frontier, labHazardRate, totalHazardRate, setControls, ADVANCED, mixSeed, zonePoint, zoneHalfWidth, uncertaintyScale, step, botTarget,
 } from '../src/web/sim.js';
 
 function play(g, policy) {
@@ -357,4 +357,31 @@ test('advanced: both labs start with research momentum already landing', () => {
   assert.ok(g.labs[0].position > 0.5, `latent ${g.labs[0].position}`);
   assert.ok(frontier(g, 0) - g.safety > before);
   assert.equal(createGame(4).labs[0].capabilityPipeline.length, 0);
+});
+
+test('bot: stays ahead of a careful player and anticipates a fast-growing one', () => {
+  // Careful pedal player (stays below its zone): the bot keeps its external deployment ahead.
+  const g = advancedGame(4, true);
+  let ahead = 0;
+  let ticks = 0;
+  while (isLive(g) && g.t < 60) {
+    const me = g.labs[0];
+    tick(g, labRisk(g, me) + committedLatent(me) - me.position + stoppingDistance(g, me) < zonePoint(g, bandCenter(g), zoneHalfWidth(g, 0), 0));
+    ticks++;
+    if (g.labs[1].deployed >= g.labs[0].deployed) ahead++;
+  }
+  assert.ok(ahead / ticks > 0.8, `bot ahead ${ahead / ticks}`);
+  // Same rival deployment now, but growing: the bot aims ahead of where it's heading.
+  const target = (rate) => {
+    const h = advancedGame(4, true);
+    // Bot's zone centered at 80: safe floor ~54, race cap 80, so neither binds below.
+    h.labs[1].bias = 0;
+    h.labs[1].ownSafety = 80 - h.safety;
+    h.labs[0].deployed = 50;
+    h.labs[1].watch = { last: 50, rate };
+    return botTarget(h, 1);
+  };
+  const [still, growing] = [target(0), target(1)];
+  assert.ok(still > 50 * 1.05 && still < 60, `target vs a still rival ${still}`);
+  assert.ok(growing > still + 10, `target vs a growing rival ${growing}`);
 });

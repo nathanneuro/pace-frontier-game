@@ -74,15 +74,20 @@ export const UNCERTAINTY = Object.freeze({
 });
 
 // Practice bot. Positions are within the bot's own danger zone: 0 = lower edge, 1 = upper edge.
-// It sits at safePosition; when behind the rival's external deployment it chases to `lead` past
-// the rival, but never beyond racePosition. Pass `bot: 'original'` to createGame for Paradigm's
-// bot (aims at 0.25 and chases without limit).
-// Tuned with src/tools/eval_bot.mjs: vs. careful players it roughly ties while adding ~no risk;
-// vs. players deep in their zone it keeps up partially but won't follow past 0.6.
+// It sits at safePosition at least. It tries to stay ahead of the rival's external deployment
+// (the only thing it sees): it projects where the rival will be by the time its own research
+// could land (rival's smoothed growth rate x its research + deployment lag) and aims its own
+// external deployment past that by max(lead, leadFraction x projection), but never beyond
+// racePosition. Pass `bot: 'original'` to createGame for Paradigm's bot (aims at 0.25 and chases
+// 1.5 past the rival's current deployment without limit).
+// Tuned with src/tools/eval_bot.mjs.
 export const BOT = Object.freeze({
   safePosition: 0,
   racePosition: 0.5,
   lead: 1.5,
+  leadFraction: 0.05,
+  // Time constant (game seconds) for smoothing the rival's observed growth rate.
+  watchSeconds: 1,
   // Advanced mode: internal and latent capability kept above external deployment.
   internalHeadroom: 1.5,
   latentHeadroom: 3,
@@ -476,7 +481,7 @@ export function createGame(seed = 1, {
     // research = capability share of research funding (advanced). Classic: all fractions are 1.
     labs: [0, 1].map(() => ({
       position: 0, available: 0, internalFraction: 1, externalFraction: 1, internal: 0, deployed: 0, deployments: [],
-      research: advanced ? ADVANCED.startingResearch : 1, safetyFunding: 0, ownSafety: 0, capabilityPipeline: [], safetyPipeline: [], accumulated: 0, bias: startBias(), speed: 0, held: false, cash: 0, profit: PROFIT.baseProfit,
+      research: advanced ? ADVANCED.startingResearch : 1, safetyFunding: 0, ownSafety: 0, capabilityPipeline: [], safetyPipeline: [], accumulated: 0, watch: null, bias: startBias(), speed: 0, held: false, cash: 0, profit: PROFIT.baseProfit,
     })),
     history: [],
   };
@@ -697,16 +702,35 @@ export function setControls(g, idx, { research, internal, external }) {
   applyFractions(lab);
 }
 
-// Bot capability target. Original: aim a quarter into the zone; if behind, 1.5 past the rival,
-// without limit. Default: sit at the safe position; chase the rival only up to the race cap.
-function botTarget(g, idx) {
+// Smoothed growth rate of the rival's external deployment, as the bot observes it.
+function watchRival(g, me, rival) {
+  if (!me.watch) me.watch = { last: rival.deployed, rate: 0 };
+  const raw = (rival.deployed - me.watch.last) / SIM.dt;
+  me.watch.rate += (raw - me.watch.rate) * Math.min(1, SIM.dt / g.bot.watchSeconds);
+  me.watch.last = rival.deployed;
+}
+
+// Risk-weighted capability the bot carries beyond its external deployment (advanced: the
+// internal/latent headroom it keeps; classic: none).
+function botRiskMargin(g) {
+  if (!g.advanced) return 0;
+  const { internalHeadroom, latentHeadroom } = g.bot === 'original' ? BOT : g.bot;
+  return Math.max(internalHeadroom, g.externalThresholdGap) + g.latentRiskWeight * (latentHeadroom - internalHeadroom);
+}
+
+// Bot target for its risk-weighted capability. Original: a quarter into the zone; if behind, 1.5
+// past the rival, without limit. Default: at least the safe position; stay ahead of where the rival
+// is heading, up to the race cap.
+export function botTarget(g, idx) {
   const me = g.labs[idx];
   const rival = g.labs[1 - idx];
-  const behind = me.deployed < rival.deployed;
   const at = (position) => zonePoint(g, bandCenter(g, idx), zoneHalfWidth(g, idx), position);
-  if (g.bot === 'original') return Math.max(at(0.25), behind ? rival.deployed + 1.5 : 0);
-  const safe = at(g.bot.safePosition);
-  return behind ? Math.max(safe, Math.min(rival.deployed + g.bot.lead, at(g.bot.racePosition))) : safe;
+  if (g.bot === 'original') return Math.max(at(0.25), me.deployed < rival.deployed ? rival.deployed + 1.5 : 0);
+  watchRival(g, me, rival);
+  const horizon = (g.advanced ? researchLag(researchMultiplier(g, me)) : 0) + DEPLOY_LAG;
+  const projected = rival.deployed + Math.max(0, me.watch.rate) * horizon;
+  const chase = projected + Math.max(g.bot.lead, g.bot.leadFraction * projected) + botRiskMargin(g);
+  return Math.max(at(g.bot.safePosition), Math.min(chase, at(g.bot.racePosition)));
 }
 
 // Researches capability while its stopping point stays below target (0.3 hysteresis). The bot
@@ -720,8 +744,7 @@ export function botPolicy(g, idx = 1) {
   const hysteresis = pushing ? 0 : 0.3;
   if (!g.advanced) return { held: me.position + stoppingDistance(g, me) < target - hysteresis };
   const { internalHeadroom, latentHeadroom } = g.bot === 'original' ? BOT : g.bot;
-  const riskMargin = Math.max(internalHeadroom, g.externalThresholdGap) + g.latentRiskWeight * (latentHeadroom - internalHeadroom);
-  const externalTarget = target - (g.bot === 'original' ? 0 : riskMargin);
+  const externalTarget = target - (g.bot === 'original' ? 0 : botRiskMargin(g));
   const research = committedLatent(me) + stoppingDistance(g, me) < externalTarget + latentHeadroom - hysteresis ? 1 : 0;
   const internal = Math.max(0, Math.min(me.available, externalTarget + internalHeadroom));
   const external = Math.max(0, Math.min(internal, externalTarget));
