@@ -74,9 +74,9 @@ other things endogenous.
 **Controls** (no accelerator; the button only starts the game):
 
 1. *Research*: capability share `r` of research funding. Latent research speed approaches
-   `r · top`. Top speed = human researchers (1.5) + AI researchers `1.5 · exp((I − 43)/8)` (`TAKEOFF`
+   `r · top`. Top speed = human researchers (1.5) + AI researchers `1.5 · exp((I − 39)/8)` (`TAKEOFF`
    in `sim.js`), where `I` is current internally deployed capability. The AI share of research is
-   therefore logistic in `I`: ~1% at the start, 50% at human level (`I = 43`), >95% above `I ≈ 67`.
+   therefore logistic in `I`: ~1% at the start, 50% at human level (`I = 39`), >95% above `I ≈ 63`.
    Beyond that, speed grows exponentially in capability, i.e. hyperbolically in time: a finite-time
    takeoff, until returns to research diminish: past ×5,000 the multiplier bends away smoothly
    (`5000 + 15000 · (1 − exp(−(raw − 5000)/15000))`, same slope at the knee) and approaches ×20,000
@@ -86,14 +86,18 @@ other things endogenous.
    then the 2-week deployment lag). Safety output lands after `1.15 · 3 months / multiplier^0.75`
    (`TAKEOFF.safetyLagRatio`, `safetyLagExponent`): AI shortens the safety cycle less than the
    capability cycle, so the gap widens with takeoff (1.15× at the start, 3.6× at ×100, 14× at
-   ×20,000). AI speeds up its own capability research cycle: 3 months at the start, under a day past ×90. Human level was set to keep
-   the median time to 95% AI share at ~10.4 game months on default settings, including the starting
-   momentum: both labs begin as if they had been researching at 70% capability funding for the 4
-   months before the game (`ADVANCED.startingResearch`, `momentumMonths`), so they start at cruising
-   speed with output already landed (some deployed, some in the deployment queue) and the rest in flight. Simple mode's pedal starts at 70% too. The advanced chart uses
+   ×20,000). AI speeds up its own capability research cycle: 3 months at the start, under a day past ×90. **Starting point and pace** (calibrated
+   to the world as of the start date): both labs start at 70% of human level
+   (`ADVANCED.startingCapability`), with true frontiers 1.5× that (`startingFrontierRatio`), i.e.
+   running slightly inside their danger zones. They begin as if they had been researching at 70%
+   capability funding for the 4 months before the game (`startingResearch`, `momentumMonths`), so
+   output is already landing and in flight. All research in the advanced dynamics (capability, own
+   safety, background drift) runs at `speedScale = 0.25` of the original's pace, set so that a
+   slightly-to-moderately risky player (15–25% into their zone) crosses human level ~9.5–11 months
+   in; 95% AI research share follows at ~17–19 months. Simple mode's pedal starts at 70% too. The advanced chart uses
    a log scale (`log(1 + v)`) so takeoff doesn't flatten the early game.
    The remaining `1 − r` funds safety, which raises **your own** true frontier by
-   `(1 − r) · 1.2 · m_s` per second (after the safety lag). Here `m_s = 1 + 0.75 · (multiplier − 1)`:
+   `(1 − r) · 1.2 · 0.25 · m_s` per second (after the safety lag). Here `m_s = 1 + 0.75 · (multiplier − 1)`:
    AI researchers speed safety research too, but at 75% of their effect on capability research
    (`ADVANCED.safetyAiEfficiency`).
 2. *Internal*: fraction of available (lagged) latent capability run inside the lab.
@@ -128,8 +132,8 @@ frontier stays put, so the zone can fall suddenly, and the lab can't tell a corr
 wrong one. The offset's reversion target is set so its stationary mean stays zero given the net jump
 flux (false claims up, debunkings down), and the jump variance counts all three jump kinds.
 
-**Releases**: capability ships in discrete model releases. Every `2 weeks / multiplier`
-(`ADVANCED.releaseWeeks`) a lab checkpoints its latent capability; each checkpoint is deployable
+**Releases**: capability ships in discrete model releases. Every `2 months / multiplier`
+(`ADVANCED.releaseMonths`) a lab checkpoints its latent capability; each checkpoint is deployable
 after the 2-week deployment lag, so deployed capability rises in steps that get finer as AI speeds
 up. Turning deployment down stays smooth and instant (any fraction of a release can be served, by
 noise injection for smoothly decreasing model capabilities,

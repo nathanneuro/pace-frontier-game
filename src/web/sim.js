@@ -105,6 +105,14 @@ export const ADVANCED = Object.freeze({
   // Each lab has its own true safety frontier: a shared background drift (the original's frontier
   // process, scaled down) plus that lab's own safety research and real breakthroughs.
   backgroundDriftScale: 0.25,
+  // Pace of all research in the advanced dynamics (capability, own safety, background drift)
+  // relative to the original game's research speed. Calibrated so a slightly-to-moderately risky
+  // player crosses human level about 10 months in.
+  speedScale: 0.25,
+  // Starting point (the world as of today): labs at this fraction of human level, with their true
+  // frontiers startingFrontierRatio above that, i.e. running slightly inside their danger zones.
+  startingCapability: 0.7,
+  startingFrontierRatio: 1.5,
   // Own-frontier speed from putting all research funding into safety, before the self-improvement
   // multiplier (internal capability speeds safety research exactly as it speeds capability research).
   safetyResearchSpeed: 1.2,
@@ -134,9 +142,9 @@ export const ADVANCED = Object.freeze({
   startingResearch: 0.7,
   momentumMonths: 4,
   // Capability ships in discrete model releases: a lab checkpoints its latent capability every
-  // releaseWeeks / (AI research multiplier), and each checkpoint is deployable after the usual
+  // releaseMonths / (AI research multiplier), and each checkpoint is deployable after the usual
   // deployment lag. So deployed capability rises in steps, finer as AI speeds up.
-  releaseWeeks: 2,
+  releaseMonths: 2,
   biasReversion: 0.1,
   realBreakthroughRate: 1 / 16,
   falseBreakthroughRate: 1 / 16,
@@ -233,7 +241,7 @@ function advanceSafety(g, dt) {
   const blend = -Math.expm1(-span / SAFETY_DRIFT.responseTime);
   const distance = m.target * span + (m.speed - m.target) * SAFETY_DRIFT.responseTime * blend;
   const scale = m.plateau ? PLATEAU.risingSpeedScale * advancePlateau(m.plateau, span) : 1;
-  g.safety += distance * scale * (g.advanced ? ADVANCED.backgroundDriftScale : 1);
+  g.safety += distance * scale * (g.advanced ? ADVANCED.backgroundDriftScale * ADVANCED.speedScale : 1);
   m.speed += (m.target - m.speed) * blend;
 }
 
@@ -254,7 +262,7 @@ export const TAKEOFF = Object.freeze({
   researchLagMonths: 3,
   safetyLagRatio: 1.15,
   safetyLagExponent: 0.75,
-  humanLevel: 43,
+  humanLevel: 39,
   scale: 8,
   diminishingReturnsAt: 5000,
   maxMultiplier: 20000,
@@ -302,7 +310,7 @@ export function aiResearchShare(lab) {
 // Top research speed. Classic: the original's bounded recursive self-improvement, driven by research
 // position. Advanced: takeoff driven by internally deployed capability.
 function topSpeed(g, lab) {
-  if (g.advanced) return SPEED.initialSpeed * takeoffMultiplier(lab.internal);
+  if (g.advanced) return SPEED.initialSpeed * ADVANCED.speedScale * takeoffMultiplier(lab.internal);
   const x = Math.max(0, lab.position);
   const early = -Math.expm1(-x / SPEED.earlyRsiScale);
   const r = Math.max(0, x - SPEED.rsiThreshold) / SPEED.rsiScale;
@@ -312,7 +320,8 @@ function topSpeed(g, lab) {
 }
 
 // Research speed relative to human researchers alone (self-improvement multiplier).
-export const researchMultiplier = (g, lab) => topSpeed(g, lab) / SPEED.initialSpeed;
+export const researchMultiplier = (g, lab) =>
+  (g.advanced ? takeoffMultiplier(lab.internal) : topSpeed(g, lab) / SPEED.initialSpeed);
 
 // Safety research gets the same AI researchers, but at safetyAiEfficiency of their capability effect.
 export const safetyMultiplier = (g, lab) => 1 + ADVANCED.safetyAiEfficiency * (researchMultiplier(g, lab) - 1);
@@ -503,7 +512,7 @@ export function createGame(seed = 1, {
     })),
     history: [],
   };
-  if (momentum) for (const lab of g.labs) startMomentum(g, lab);
+  if (advanced) startWorld(g, momentum);
   if (plateaus) {
     const p = { random: (seed ^ 2246822507) >>> 0, phase: 'rising', elapsed: 0, duration: 0 };
     p.duration = uniform(p, PLATEAU.minimumRise, PLATEAU.maximumRise);
@@ -513,9 +522,24 @@ export function createGame(seed = 1, {
   return g;
 }
 
+// Advanced starting point: both labs at startingCapability x human level (deployed), with research
+// momentum if enabled, and true frontiers startingFrontierRatio above that.
+function startWorld(g, momentum) {
+  const capability = ADVANCED.startingCapability * TAKEOFF.humanLevel;
+  for (const lab of g.labs) {
+    if (momentum) startMomentum(g, lab);
+    const shift = capability - lab.available;
+    lab.position += shift;
+    lab.available += shift;
+    for (const d of lab.deployments) d.position += shift;
+    applyFractions(lab);
+  }
+  g.safety = capability * ADVANCED.startingFrontierRatio - Math.min(...g.labs.map((l) => l.ownSafety));
+}
+
 // Time between a lab's model releases (advanced), in game seconds.
 export const releaseInterval = (g, lab) =>
-  (ADVANCED.releaseWeeks * 7) / CLOCK.daysPerSecond / researchMultiplier(g, lab);
+  (ADVANCED.releaseMonths * SECONDS_PER_MONTH) / researchMultiplier(g, lab);
 
 // Research done before the game: steady research for momentumMonths before t = 0. Output produced
 // at tau lands at tau + lag: what landed before t = 0 is already latent (and deployed, or queued
@@ -526,7 +550,7 @@ function startMomentum(g, lab) {
   const [capLag, safetyLag] = [researchLag(m), researchLag(m, true)];
   const begin = -ADVANCED.momentumMonths * SECONDS_PER_MONTH;
   const latentAt = (s) => lab.speed * Math.max(0, s - begin - capLag);
-  const safety = (1 - lab.research) * ADVANCED.safetyResearchSpeed * safetyMultiplier(g, lab) * SIM.dt;
+  const safety = (1 - lab.research) * ADVANCED.safetyResearchSpeed * ADVANCED.speedScale * safetyMultiplier(g, lab) * SIM.dt;
   for (let tau = begin + SIM.dt; tau <= EPS; tau += SIM.dt) {
     if (tau + capLag > EPS) lab.capabilityPipeline.push({ at: tau + capLag, amount: lab.speed * SIM.dt });
     if (tau + safetyLag > EPS) lab.safetyPipeline.push({ at: tau + safetyLag, amount: safety });
@@ -590,7 +614,7 @@ function advanceWorld(g, dt) {
   g.labs.forEach((lab, i) => {
     if (g.phase === 'running') {
       const lag = researchLag(researchMultiplier(g, lab), true);
-      lab.safetyPipeline.push({ at: g.t + lag, amount: (1 - lab.research) * A.safetyResearchSpeed * safetyMultiplier(g, lab) * dt });
+      lab.safetyPipeline.push({ at: g.t + lag, amount: (1 - lab.research) * A.safetyResearchSpeed * A.speedScale * safetyMultiplier(g, lab) * dt });
     }
     lab.ownSafety += land(lab.safetyPipeline, g.t);
     lab.bias = driftOffset(lab.bias, g.proc, dt, rng);

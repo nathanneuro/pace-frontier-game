@@ -100,7 +100,8 @@ test('advanced: internal deployment speeds latent growth (RSI); external does no
 });
 
 test('advanced: capability share of funding sets research speed', () => {
-  const latent = (research) => runTo(advancedGame(4), 40, { ...all, research }).labs[0].position;
+  const start = advancedGame(4).labs[0].position;
+  const latent = (research) => runTo(advancedGame(4), 40, { ...all, research }).labs[0].position - start;
   assert.ok(latent(1) > latent(0.5) && latent(0.5) > latent(0.1));
   assert.equal(latent(0), 0);
 });
@@ -108,7 +109,7 @@ test('advanced: capability share of funding sets research speed', () => {
 test('advanced: safety funding raises only your own frontier', () => {
   const run = (research) => runTo(advancedGame(4), 40, { ...all, research });
   const [funded, unfunded] = [run(0), run(1)];
-  assert.ok(frontier(funded, 0) > frontier(unfunded, 0) + 20);
+  assert.ok(frontier(funded, 0) > frontier(unfunded, 0) + 20 * ADVANCED.speedScale);
   // With no safety funding, your own frontier gains only background drift and real breakthroughs.
   const breakthroughs = unfunded.events.filter((e) => !e.retracted).reduce((a, e) => a + e.gain, 0);
   assert.ok(Math.abs(unfunded.labs[0].ownSafety - breakthroughs) < 1e-9);
@@ -219,13 +220,14 @@ test('advanced takeoff: AI share is half at human level, dominant above, and spe
   // Diminishing returns: unchanged up to the knee, then bends smoothly toward the asymptote.
   const { diminishingReturnsAt: knee, maxMultiplier: max } = TAKEOFF;
   const kneeAt = H + S * Math.log(knee - 1);
-  assert.ok(Math.abs(top(kneeAt - 0.5) / 1.5 - (1 + Math.exp((kneeAt - 0.5 - H) / S))) < 1e-6);
+  const base = 1.5 * ADVANCED.speedScale; // human-only top research speed
+  assert.ok(Math.abs(top(kneeAt - 0.5) / base - (1 + Math.exp((kneeAt - 0.5 - H) / S))) < 1e-6);
   const slope = (x) => (top(x + 1e-4) - top(x - 1e-4)) / 2e-4;
   assert.ok(Math.abs(slope(kneeAt - 1e-3) / slope(kneeAt + 1e-3) - 1) < 1e-3, 'smooth at the knee');
-  const late = [H + 10 * S, H + 11 * S, H + 12 * S].map((x) => top(x) / 1.5);
+  const late = [H + 10 * S, H + 11 * S, H + 12 * S].map((x) => top(x) / base);
   assert.ok(late.every((m, k) => m < max && (!k || m > late[k - 1])), `late multipliers ${late}`);
   assert.ok(late[0] < 0.8 * max && late.at(-1) > 0.999 * max, `late multipliers ${late}`);
-  assert.ok(top(1e6) / 1.5 <= max);
+  assert.ok(top(1e6) / base <= max);
 });
 
 test('advanced: AI boosts safety research, but less than capability research', () => {
@@ -251,11 +253,13 @@ test('advanced: research output lands after 3 months / AI multiplier; safety lat
   assert.ok(months(researchLag(100)) * 30.4 < 1, 'under a day at x100');
   // Nothing lands for the first ~3 months of research.
   const g = advancedGame(4);
-  runTo(g, researchLag(1) * 0.9, all);
-  assert.equal(g.labs[0].position, 0);
+  const start = g.labs[0].position;
+  const lag = researchLag(researchMultiplier(g, g.labs[0]));
+  runTo(g, lag * 0.9, all);
+  assert.equal(g.labs[0].position, start);
   assert.ok(pendingResearch(g.labs[0]).capability > 0);
-  runTo(g, researchLag(1) * 1.2, all);
-  assert.ok(g.labs[0].position > 0);
+  runTo(g, lag * 1.2, all);
+  assert.ok(g.labs[0].position > start);
 });
 
 test('advanced: switching funding to safety stops new capability output, but in-flight research still lands', () => {
@@ -413,15 +417,26 @@ test('advanced: capability ships in discrete releases, more often as AI speeds u
   const g = advancedGame(4, true);
   const steps = [];
   let last = g.labs[0].available;
-  while (g.t < 30) {
+  while (g.t < 50) {
     tick(g, all);
     if (g.labs[0].available !== last) steps.push(g.t);
     last = g.labs[0].available;
   }
   const gaps = steps.slice(1).map((t, k) => t - steps[k]);
   const interval = releaseInterval(g, g.labs[0]);
-  assert.ok(steps.length >= 5 && gaps.every((d) => d > 0.8 * interval), `release gaps ${gaps}`);
+  assert.ok(steps.length >= 4 && gaps.every((d) => d > 0.8 * interval), `release gaps ${gaps}`);
   const lab = g.labs[0];
-  lab.internal = TAKEOFF.humanLevel + 40;
-  assert.ok(releaseInterval(g, lab) < interval / 50);
+  const at = (internal) => releaseInterval(g, { ...lab, internal });
+  assert.ok(at(TAKEOFF.humanLevel + 40) < at(0) / 50);
+});
+
+test('advanced: the world starts at ~70% of human level, slightly inside the danger zone', () => {
+  for (const seed of [1, 2, 3]) {
+    const g = createGame(mixSeed(seed), { advanced: true });
+    for (const [i, lab] of g.labs.entries()) {
+      assert.ok(Math.abs(lab.deployed / TAKEOFF.humanLevel - ADVANCED.startingCapability) < 1e-9);
+      assert.ok(Math.abs(frontier(g, i) / lab.deployed - ADVANCED.startingFrontierRatio) < 0.05);
+      assert.equal(labHazardRate(g, i), 0);
+    }
+  }
 });
