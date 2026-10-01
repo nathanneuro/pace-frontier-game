@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   SIM, createGame, tick, isLive, bandCenter, beliefWeights, expectedMonthlyRisk,
-  monthlyRisk, hazardRate, riskCapability, playerRiskCapability, labRisk, aiResearchShare, TAKEOFF, stoppingDistance, researchMultiplier, safetyMultiplier, researchLag, pendingResearch, committedLatent, CLOCK, frontier, labHazardRate, totalHazardRate, setControls, ADVANCED, mixSeed, zonePoint, step,
+  monthlyRisk, hazardRate, riskCapability, playerRiskCapability, labRisk, aiResearchShare, TAKEOFF, stoppingDistance, researchMultiplier, safetyMultiplier, researchLag, pendingResearch, committedLatent, CLOCK, frontier, labHazardRate, totalHazardRate, setControls, ADVANCED, mixSeed, zonePoint, zoneHalfWidth, uncertaintyScale, step,
 } from '../src/web/sim.js';
 
 function play(g, policy) {
@@ -289,13 +289,30 @@ test('simple mode: the pedal ramps funding to capabilities in ~1 s and back at t
 
 test('advanced: danger zone and breakthroughs scale with the frontier', () => {
   const g = advancedGame(4);
-  const width = (center) => zonePoint(g, center, 1) - zonePoint(g, center, 0);
+  const width = (center) => zonePoint(g, center, g.halfWidth, 1) - zonePoint(g, center, g.halfWidth, 0);
   assert.ok(Math.abs(width(1000) / width(10) - 100) < 1e-9);
-  assert.ok(Math.abs(zonePoint(g, 10, 0.5) - 10) < 1e-12);
+  assert.ok(Math.abs(zonePoint(g, 10, g.halfWidth, 0.5) - 10) < 1e-12);
   for (const lab of g.labs) lab.ownSafety = 500;
   const before = frontier(g, 0);
   while (g.t < 60 && !g.events.some((e) => e.real && e.t > 0)) step(g);
   const e = g.events.find((x) => x.real);
   assert.ok(e && e.size >= ADVANCED.breakthroughMin && e.size <= ADVANCED.breakthroughMax);
   assert.ok(frontier(g, 0) - before > ADVANCED.breakthroughMin * before * 0.99);
+});
+
+test('advanced: uncertainty grows once AI research outpaces humans', () => {
+  const g = advancedGame(4);
+  const lab = g.labs[0];
+  const at = (internal) => {
+    lab.internal = internal;
+    return [researchMultiplier(g, lab), uncertaintyScale(g, 0), zoneHalfWidth(g, 0), bandCenter(g, 0)];
+  };
+  const [m0, s0, w0] = at(0);
+  assert.ok(m0 < 1.1 && s0 < 1.02 && Math.abs(w0 - g.halfWidth) < 0.01);
+  const [m1, s1, w1, c1] = at(100);
+  assert.ok(Math.abs(s1 - (1 + ADVANCED.speedUncertainty * Math.log10(m1))) < 1e-12 && s1 > 2);
+  assert.ok(Math.abs(w1 - g.halfWidth * s1) < 1e-12);
+  // The estimate's error scales too: center = truth * exp(bias * scale).
+  assert.ok(Math.abs(c1 - frontier(g, 0) * Math.exp(lab.bias * s1)) < 1e-9);
+  assert.equal(uncertaintyScale(createGame(1), 0), 1);
 });

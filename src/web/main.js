@@ -1,5 +1,5 @@
 import {
-  SIM, DEPLOY_LAG, mixSeed, createGame, tick, isLive, bandCenter, zonePoint, playerRiskCapability, frontier, aiResearchShare, researchMultiplier, TAKEOFF, researchLag, pendingResearch,
+  SIM, DEPLOY_LAG, mixSeed, createGame, tick, isLive, bandCenter, zonePoint, zoneHalfWidth, playerRiskCapability, frontier, aiResearchShare, researchMultiplier, TAKEOFF, researchLag, pendingResearch,
   expectedMonthlyRisk, monthlyRisk, cumulativeRisk, monthsRemaining, gameDate, CLOCK,
 } from './sim.js';
 
@@ -89,8 +89,8 @@ function renderPanels() {
   const center = bandCenter(g);
   const what = advanced ? 'Risk-weighted capability' : 'Frontier model';
   $('#risk-zone').textContent =
-    c <= zonePoint(g, center, 0) ? `${what} below danger zone`
-      : c >= zonePoint(g, center, 1) ? `${what} above danger zone`
+    c <= zonePoint(g, center, zoneHalfWidth(g), 0) ? `${what} below danger zone`
+      : c >= zonePoint(g, center, zoneHalfWidth(g), 1) ? `${what} above danger zone`
         : `${what} in danger zone`;
   // Each slider: what 0% means on the left, what 100% means on the right, with shares and amounts.
   const sides = (id, lo, hi, loAmount, hiAmount) => {
@@ -161,12 +161,14 @@ function showResult() {
   $('#result-risk').textContent = `Realized cumulative catastrophe risk: ${(100 * cumulativeRisk(g)).toFixed(2)}%`;
   const b = g.labs[0].bias;
   const real = g.events.filter((e) => e.real).length;
+  const off = frontier(g, 0) / bandCenter(g, 0) - 1; // advanced: true frontier relative to the zone center
+  const w = zoneHalfWidth(g);
   $('#result-frontier').textContent = g.halfWidth === 0
     ? 'The frontier was shown exactly this game (w=0).'
     : advanced
-      ? `The true frontier ended ${Math.round(100 * Math.abs(Math.expm1(-b)))}% ${b > 0 ? 'below' : 'above'} the center of your danger zone (zone: ${Math.round(100 * Math.expm1(-g.halfWidth))}% to +${Math.round(100 * Math.expm1(g.halfWidth))}%).`
-      : `The true frontier ended ${Math.abs(b).toFixed(2)} ${b > 0 ? 'below' : 'above'} the center of your danger zone (zone half-width ${g.halfWidth}).`
-      + (advanced ? ` ${real} of ${g.events.length} apparent safety breakthroughs were real (▲ real, ✕ false on the chart).` : '');
+      ? `The true frontier ended ${Math.round(100 * Math.abs(off))}% ${off < 0 ? 'below' : 'above'} the center of your danger zone (zone at the end: ${Math.round(100 * Math.expm1(-w))}% to +${Math.round(100 * Math.expm1(w))}%).`
+        + ` ${real} of ${g.events.length} apparent safety breakthroughs were real (▲ real, ✕ false on the chart).`
+      : `The true frontier ended ${Math.abs(b).toFixed(2)} ${b > 0 ? 'below' : 'above'} the center of your danger zone (zone half-width ${g.halfWidth}).`;
   $('#result').hidden = false;
 }
 
@@ -205,8 +207,8 @@ function viewport(g, ahead) {
   const end = live ? Math.max(WINDOW, g.t + lead + 1) : view ? view.end : Math.max(g.t, 1);
   const start = live ? Math.max(0, end - Math.max(WINDOW, lead + 1 + HISTORY)) : view ? view.start : 0;
   const visible = g.history.filter((h) => h.t >= start && h.t <= end);
-  const lows = visible.flatMap((h) => [zonePoint(g, h.center, 0), ...h.deployed]);
-  const highs = visible.flatMap((h) => [zonePoint(g, h.center, 1), ...h.deployed]);
+  const lows = visible.flatMap((h) => [zonePoint(g, h.centers[0], h.widths[0], 0), ...h.deployed]);
+  const highs = visible.flatMap((h) => [zonePoint(g, h.centers[0], h.widths[0], 1), ...h.deployed]);
   if (live) highs.push(g.labs[0].position, ...ahead.map(([, v]) => v), ...(advanced ? visible.flatMap((h) => [h.latent[0], h.internal[0]]) : []));
   else highs.push(...visible.flatMap((h) => [...h.frontier, ...(advanced ? [...h.latent, ...h.internal] : [])]));
   const lo = Math.max(0, Math.min(...lows) - 2);
@@ -236,7 +238,7 @@ function drawChart() {
   const f = advanced ? (v) => Math.log1p(Math.max(0, v)) : (v) => v;
   const Y = (v) => H - pad.bottom - ((f(v) - f(lo)) / (f(hi) - f(lo))) * (H - pad.top - pad.bottom);
   const hist = [...g.history];
-  if (hist.at(-1).t < g.t) hist.push({ t: g.t, frontier: g.labs.map((_, i) => frontier(g, i)), center: bandCenter(g), deployed: g.labs.map((l) => l.deployed), internal: g.labs.map((l) => l.internal), latent: g.labs.map((l) => l.position) });
+  if (hist.at(-1).t < g.t) hist.push({ t: g.t, frontier: g.labs.map((_, i) => frontier(g, i)), centers: g.labs.map((_, i) => bandCenter(g, i)), widths: g.labs.map((_, i) => zoneHalfWidth(g, i)), deployed: g.labs.map((l) => l.deployed), internal: g.labs.map((l) => l.internal), latent: g.labs.map((l) => l.position) });
 
   ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
   ctx.clearRect(0, 0, W, H);
@@ -287,9 +289,9 @@ function drawChart() {
   // MIN_ZONE_PX tall (widened around its center) so they stay visible when zoomed out.
   // Yours always; the competitor's (grey) is revealed after the game.
   const MIN_ZONE_PX = 8;
-  const drawZone = (centerOf, rgb, alpha) => {
+  const drawZone = (i, rgb, alpha) => {
     const edges = hist.map((h) => {
-      const [lo, hi] = [Y(zonePoint(g, centerOf(h), 0)), Y(zonePoint(g, centerOf(h), 1))];
+      const [lo, hi] = [Y(zonePoint(g, h.centers[i], h.widths[i], 0)), Y(zonePoint(g, h.centers[i], h.widths[i], 1))];
       const mid = (lo + hi) / 2;
       const half = Math.max(MIN_ZONE_PX / 2, (lo - hi) / 2);
       return { x: X(h.t), bottom: mid + half, top: mid - half };
@@ -306,8 +308,8 @@ function drawChart() {
     polyline(edges.map((e) => [e.x, e.bottom]), `rgba(${rgb}, 0.35)`, 1);
     polyline(edges.map((e) => [e.x, e.top]), `rgba(${rgb}, 0.35)`, 1);
   };
-  if (advanced && !isLive(g)) drawZone((h) => h.centers[1], '0, 0, 0', 0.18);
-  drawZone((h) => h.center, css('--zone'), 0.45);
+  if (advanced && !isLive(g)) drawZone(1, '0, 0, 0', 0.18);
+  drawZone(0, css('--zone'), 0.45);
 
   if (!isLive(g)) {
     polyline(hist.map((h) => [X(h.t), Y(h.frontier[0])]), css('--truth'), 2, [6, 5]);
@@ -397,7 +399,7 @@ function showInspector(g, h) {
     ['Internal', ...both((i) => cap(h.internal[i]))],
     ['Latent', ...both((i) => cap(h.latent[i]))],
     ['True safety frontier', ...both((i) => cap(h.frontier[i]))],
-    ['Danger zone (estimate)', ...both((i) => `${cap(zonePoint(g, h.centers[i], 0))}–${cap(zonePoint(g, h.centers[i], 1))}`)],
+    ['Danger zone (estimate)', ...both((i) => `${cap(zonePoint(g, h.centers[i], h.widths[i], 0))}–${cap(zonePoint(g, h.centers[i], h.widths[i], 1))}`)],
     ['Funding (capability)', ...both((i) => `${Math.round(100 * h.research[i])}%`)],
     ['AI research speed-up', ...both((i) => `×${h.multiplier[i] < 1000 ? h.multiplier[i].toPrecision(3) : compact.format(h.multiplier[i])}`)],
     ['True risk / month', ...both((i) => pctText(monthlyRisk(h.labRates[i])))],
@@ -406,7 +408,7 @@ function showInspector(g, h) {
     ['Deployed', ...both((i) => cap(h.deployed[i]))],
     ['Cash', ...both((i) => money(h.cash[i]))],
     ['True frontier (shared)', cap(h.frontier[0]), ''],
-    ['Your danger zone', `${cap(zonePoint(g, h.center, 0))}–${cap(zonePoint(g, h.center, 1))}`, ''],
+    ['Your danger zone', `${cap(zonePoint(g, h.centers[0], h.widths[0], 0))}–${cap(zonePoint(g, h.centers[0], h.widths[0], 1))}`, ''],
     ['True risk / month', pctText(monthlyRisk(h.labRates[0])), ''],
   ];
   const el = $('#inspect');

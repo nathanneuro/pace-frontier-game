@@ -114,6 +114,10 @@ export const ADVANCED = Object.freeze({
   zoneHalfWidth: 0.4,
   // The offset's stationary standard deviation is zoneHalfWidth / zoneSigmas.
   zoneSigmas: 2,
+  // Once AI research outpaces humans, people can't follow what's happening as well: each lab's
+  // uncertainty (the error of its estimate and the width of its zone) scales by
+  // 1 + speedUncertainty * log10(research multiplier): x1.3 at x10, x1.6 at x100, x2.3 at x20000.
+  speedUncertainty: 0.3,
   biasReversion: 0.1,
   realBreakthroughRate: 1 / 16,
   falseBreakthroughRate: 1 / 16,
@@ -325,11 +329,21 @@ export const frontier = (g, i = 0) => g.safety + g.labs[i].ownSafety;
 // Frontier implied by an estimate (zone center) and an offset. Classic: additive. Advanced: log-offset.
 const shiftBy = (g, value, offset) => (g.advanced ? value * Math.exp(offset) : value + offset);
 
-// Lab i's estimated frontier (center of its danger zone).
-export const bandCenter = (g, i = 0) => shiftBy(g, frontier(g, i), g.labs[i].bias);
+// How much lab i's uncertainty is scaled up by the speed of its AI research (advanced; 1 in classic).
+// lab.bias is the offset at unit scale; the actual offset and the zone half-width scale with it, so
+// the truth leaves the zone exactly when |bias| > halfWidth.
+export const uncertaintyScale = (g, i = 0) =>
+  (g.advanced ? 1 + ADVANCED.speedUncertainty * Math.log10(researchMultiplier(g, g.labs[i])) : 1);
 
-// Point at `position` across the danger zone around `center`: 0 = lower edge, 1 = upper edge.
-export const zonePoint = (g, center, position) => shiftBy(g, center, g.halfWidth * (2 * position - 1));
+// Lab i's danger-zone half-width (capability units in classic, log units in advanced).
+export const zoneHalfWidth = (g, i = 0) => g.halfWidth * uncertaintyScale(g, i);
+
+// Lab i's estimated frontier (center of its danger zone).
+export const bandCenter = (g, i = 0) => shiftBy(g, frontier(g, i), g.labs[i].bias * uncertaintyScale(g, i));
+
+// Point at `position` across a danger zone of half-width `width` around `center`:
+// 0 = lower edge, 1 = upper edge.
+export const zonePoint = (g, center, width, position) => shiftBy(g, center, width * (2 * position - 1));
 
 // Capability that generates catastrophe risk for one lab: internal deployment counts fully,
 // external deployment as slightly more (a lower threshold), plus weighted latent-only capability.
@@ -463,8 +477,8 @@ export function createGame(seed = 1, {
 // History snapshot (every 0.1 s). Hidden quantities are recorded for the post-game review only.
 function record(g) {
   g.history.push({
-    t: g.t, frontier: g.labs.map((_, i) => frontier(g, i)), center: bandCenter(g, 0),
-    centers: g.labs.map((_, i) => bandCenter(g, i)),
+    t: g.t, frontier: g.labs.map((_, i) => frontier(g, i)),
+    centers: g.labs.map((_, i) => bandCenter(g, i)), widths: g.labs.map((_, i) => zoneHalfWidth(g, i)),
     deployed: g.labs.map((l) => l.deployed), internal: g.labs.map((l) => l.internal), latent: g.labs.map((l) => l.position),
     cash: g.labs.map((l) => l.cash),
     research: g.labs.map((l) => l.research),
@@ -492,7 +506,8 @@ function finish(g, reason) {
 function beliefRates(g) {
   const c = playerRiskCapability(g);
   const center = bandCenter(g, 0);
-  return g.belief.offsets.map((b) => hazardRate(c, shiftBy(g, center, -b)));
+  const scale = uncertaintyScale(g, 0);
+  return g.belief.offsets.map((b) => hazardRate(c, shiftBy(g, center, -b * scale)));
 }
 
 // Advanced-mode world dynamics for one tick, per lab: own safety research, real and false
@@ -621,7 +636,7 @@ function botTarget(g, idx) {
   const me = g.labs[idx];
   const rival = g.labs[1 - idx];
   const behind = me.deployed < rival.deployed;
-  const at = (position) => zonePoint(g, bandCenter(g, idx), position);
+  const at = (position) => zonePoint(g, bandCenter(g, idx), zoneHalfWidth(g, idx), position);
   if (g.bot === 'original') return Math.max(at(0.25), behind ? rival.deployed + 1.5 : 0);
   const safe = at(g.bot.safePosition);
   return behind ? Math.max(safe, Math.min(rival.deployed + g.bot.lead, at(g.bot.racePosition))) : safe;

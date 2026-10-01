@@ -117,7 +117,12 @@ frontier: lab `i` sees only its own zone, centered on `Sᵢ · exp(bᵢ)` and sp
 (`w = ADVANCED.zoneHalfWidth = 0.4`, i.e. −33% to +49%). Each log-offset `bᵢ` is an
 Ornstein–Uhlenbeck process (reversion 0.1/s) plus lab-specific *false breakthroughs*, which raise the
 estimate by a factor `1 + s`, `s ~ U(0.05, 0.2)`, without moving `S`. *Real breakthroughs* (same
-size distribution and rate) raise that lab's `Sᵢ` by `s · Sᵢ`, and with it its zone by the same factor. A lab sees
+size distribution and rate) raise that lab's `Sᵢ` by `s · Sᵢ`, and with it its zone by the same factor.
+Once AI research outpaces humans, people can follow less of what's happening: each lab's
+uncertainty scales by `kᵢ = 1 + 0.3 · log10(multiplierᵢ)` (`ADVANCED.speedUncertainty`; ×1.3 at
+×10, ×1.6 at ×100, ×2.3 at ×20,000). Both the zone half-width (`w · kᵢ`) and the estimate's actual
+error (center `Sᵢ · exp(bᵢ · kᵢ)`) scale, so the zone stays calibrated: the truth is outside it
+exactly when `|bᵢ| > w`. A lab sees
 its zone jump but can't tell which kind of jump it was. The parameters make `bᵢ` mean-zero with
 stationary standard deviation `w/2` (`zoneSigmas`), so the truth lies outside the zone some of the time (~5%)
 .
