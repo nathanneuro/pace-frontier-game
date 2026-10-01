@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   SIM, createGame, tick, isLive, bandCenter, beliefWeights, expectedMonthlyRisk,
-  monthlyRisk, hazardRate, riskCapability, playerRiskCapability, labRisk, aiResearchShare, TAKEOFF, stoppingDistance, researchMultiplier, safetyMultiplier, frontier, labHazardRate, totalHazardRate, setControls, ADVANCED, mixSeed,
+  monthlyRisk, hazardRate, riskCapability, playerRiskCapability, labRisk, aiResearchShare, TAKEOFF, stoppingDistance, researchMultiplier, safetyMultiplier, feedbackLag, CLOCK, frontier, labHazardRate, totalHazardRate, setControls, ADVANCED, mixSeed,
 } from '../src/web/sim.js';
 
 function play(g, policy) {
@@ -200,13 +200,13 @@ test('advanced takeoff: AI share is half at human level, dominant above, and spe
   const g = createGame(1, { advanced: true });
   const lab = g.labs[0];
   const at = (internal) => {
-    lab.internal = internal;
+    lab.feedback = internal;
     lab.speed = 0;
     return [aiResearchShare(lab), stoppingDistance(g, { ...lab, speed: 1 })];
   };
   const H = TAKEOFF.humanLevel;
   const S = TAKEOFF.scale;
-  assert.ok(at(0)[0] < 0.01);
+  assert.ok(Math.abs(at(0)[0] - 1 / (1 + Math.exp(H / S))) < 1e-12 && at(0)[0] < 0.05);
   assert.ok(Math.abs(at(H)[0] - 0.5) < 1e-12);
   assert.ok(at(H + 3 * S)[0] > 0.95);
   // stopping distance at unit speed is 1 / (2 * decel * top), so it reveals top speed.
@@ -222,9 +222,51 @@ test('advanced: AI boosts safety research, but less than capability research', (
   const g = createGame(1, { advanced: true });
   const lab = g.labs[0];
   for (const internal of [0, 20, 40, 60, 80]) {
-    lab.internal = internal;
+    lab.feedback = internal;
+    lab.safetyFeedback = internal;
     const [cap, safe] = [researchMultiplier(g, lab), safetyMultiplier(g, lab)];
     assert.ok(safe >= 1 && safe <= cap);
     assert.ok(Math.abs((safe - 1) - ADVANCED.safetyAiEfficiency * (cap - 1)) < 1e-12);
   }
+});
+
+test('advanced: internal capability feeds back after a lag that shrinks from 3 months to 0', () => {
+  const months = (s) => s * CLOCK.yearsPerSecond * 12;
+  assert.ok(Math.abs(months(feedbackLag(0)) - 3) < 1e-9);
+  assert.ok(Math.abs(months(feedbackLag(SIM.duration / 2)) - 1.5) < 1e-9);
+  assert.equal(feedbackLag(SIM.duration), 0);
+  const g = immortal(createGame(4, { advanced: true }));
+  const seen = [];
+  while (g.t < 40) {
+    tick(g, all);
+    seen.push({ t: g.t, internal: g.labs[0].internal, feedback: g.labs[0].feedback });
+  }
+  const last = seen.at(-1);
+  const then = seen.findLast((s) => s.t <= last.t - feedbackLag(last.t) + 1e-9);
+  // The trace is recorded at the start of each tick, so the lagged value is at most one tick older.
+  assert.ok(last.feedback <= then.internal + 1e-9 && last.feedback < last.internal);
+  assert.ok(Math.abs(last.feedback - then.internal) <= then.internal - seen[seen.indexOf(then) - 1].internal + 1e-9);
+});
+
+test('advanced: rolling back internal deployment cuts feedback immediately; restoring is immediate too', () => {
+  const g = runTo(advancedGame(4), 30, all);
+  const lab = g.labs[0];
+  const before = lab.feedback;
+  assert.ok(before > 10 && before < lab.internal, 'feedback lags new capability');
+  setControls(g, 0, { ...all, internal: 0.2 });
+  assert.equal(lab.feedback, lab.internal);
+  assert.ok(lab.feedback < before);
+  runTo(g, 32, { ...all, internal: 0.2 });
+  setControls(g, 0, all);
+  assert.ok(lab.feedback >= before, 'already-integrated capability returns at once');
+});
+
+test('advanced: safety research integrates new AI with a 15% longer lag', () => {
+  assert.ok(Math.abs(feedbackLag(10, TAKEOFF.safetyLagRatio) / feedbackLag(10) - 1.15) < 1e-12);
+  const g = runTo(advancedGame(4), 40, all);
+  const lab = g.labs[0];
+  assert.ok(lab.safetyFeedback < lab.feedback, `safety ${lab.safetyFeedback} vs capability ${lab.feedback}`);
+  setControls(g, 0, { ...all, internal: 0.1 });
+  assert.equal(lab.safetyFeedback, lab.internal);
+  assert.equal(lab.feedback, lab.internal);
 });

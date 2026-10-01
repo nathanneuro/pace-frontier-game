@@ -241,20 +241,27 @@ function drawChart() {
   }
 
   // Danger zone: stacked translucent layers so shading deepens toward the upper edge,
-  // matching P(true frontier below y), which rises linearly across the zone.
+  // matching P(true frontier below y), which rises linearly across the zone. Drawn at least
+  // MIN_ZONE_PX tall (widened around its center) so it stays visible when zoomed out.
+  const MIN_ZONE_PX = 8;
+  const edges = hist.map((h) => {
+    const [lo, hi] = [Y(h.center - g.halfWidth), Y(h.center + g.halfWidth)];
+    const mid = (lo + hi) / 2;
+    const half = Math.max(MIN_ZONE_PX / 2, (lo - hi) / 2);
+    return { x: X(h.t), bottom: mid + half, top: mid - half };
+  });
   const layers = 10;
   const zone = css('--zone');
   for (let k = 0; k < layers; k++) {
-    const bottom = -g.halfWidth + (2 * g.halfWidth * k) / layers;
     ctx.beginPath();
-    hist.forEach((h, i) => (i ? ctx.lineTo : ctx.moveTo).call(ctx, X(h.t), Y(h.center + bottom)));
-    for (let i = hist.length - 1; i >= 0; i--) ctx.lineTo(X(hist[i].t), Y(hist[i].center + g.halfWidth));
+    edges.forEach((e, i) => (i ? ctx.lineTo : ctx.moveTo).call(ctx, e.x, e.bottom + ((e.top - e.bottom) * k) / layers));
+    for (let i = edges.length - 1; i >= 0; i--) ctx.lineTo(edges[i].x, edges[i].top);
     ctx.closePath();
     ctx.fillStyle = `rgba(${zone}, ${0.45 / layers})`;
     ctx.fill();
   }
-  polyline(hist.map((h) => [X(h.t), Y(h.center - g.halfWidth)]), `rgba(${zone}, 0.35)`, 1);
-  polyline(hist.map((h) => [X(h.t), Y(h.center + g.halfWidth)]), `rgba(${zone}, 0.35)`, 1);
+  polyline(edges.map((e) => [e.x, e.bottom]), `rgba(${zone}, 0.35)`, 1);
+  polyline(edges.map((e) => [e.x, e.top]), `rgba(${zone}, 0.35)`, 1);
 
   if (!isLive(g)) {
     polyline(hist.map((h) => [X(h.t), Y(h.frontier[0])]), css('--truth'), 2, [6, 5]);
